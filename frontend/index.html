@@ -1,0 +1,708 @@
+
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Mexhi Coffee Manager - Sistema de Gestión de Inventarios de Café">
+    <title>Mexhi Coffee Manager v2.0</title>
+    
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Chart.js para gráficas -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    
+    <!-- CSS Personalizado -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- ======================== CONTAINER PRINCIPAL ======================== -->
+    <div id="appContainer" class="app-container">
+        
+        <!-- ======================== LOGIN VIEW ======================== -->
+        <div id="login" class="view active login-view">
+            <div class="login-container">
+                <div class="login-card">
+                    <div class="login-header">
+                        <div class="login-logo">
+                            <i class="fas fa-coffee"></i>
+                        </div>
+                        <h1>Mexhi Coffee Manager</h1>
+                        <p class="login-subtitle">v2.0 - Sistema de Gestión de Inventarios</p>
+                    </div>
+                    
+                    <form id="loginForm" class="login-form">
+                        <div class="form-group">
+                            <label for="loginEmail">Email</label>
+                            <div class="input-wrapper">
+                                <i class="fas fa-envelope"></i>
+                                <input 
+                                    type="email" 
+                                    id="loginEmail" 
+                                    placeholder="admin@mexhi.com"
+                                    required
+                                >
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="loginPassword">Contraseña</label>
+                            <div class="input-wrapper">
+                                <i class="fas fa-lock"></i>
+                                <input 
+                                    type="password" 
+                                    id="loginPassword" 
+                                    placeholder="Ingresa tu contraseña"
+                                    required
+                                >
+                            </div>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-login">
+                            <i class="fas fa-sign-in-alt"></i> Iniciar Sesión
+                        </button>
+                    </form>
+                    
+                    <div class="login-footer">
+                        <p>Credenciales de prueba:</p>
+                        <code>admin@mexhi.com / password</code>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- ======================== MAIN APP LAYOUT ======================== -->
+        <div id="mainApp" class="main-layout hidden">
+            
+            <!-- ======================== SIDEBAR ======================== -->
+            <aside id="sidebar" class="sidebar">
+                <div class="sidebar-header">
+                    <div class="logo">
+                        <i class="fas fa-coffee"></i>
+                        <span>MCM</span>
+                    </div>
+                    <button id="sidebarToggle" class="sidebar-toggle">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                </div>
+                
+                <nav class="sidebar-nav">
+                    <a href="#" data-view="dashboard" class="nav-link active">
+                        <i class="fas fa-chart-line"></i>
+                        <span>Dashboard</span>
+                    </a>
+                    <a href="#" data-view="lotes" class="nav-link">
+                        <i class="fas fa-boxes"></i>
+                        <span>Lotes</span>
+                    </a>
+                    <a href="#" data-view="productos" class="nav-link">
+                        <i class="fas fa-shopping-bag"></i>
+                        <span>Productos</span>
+                    </a>
+                    <a href="#" data-view="alertas" class="nav-link">
+                        <i class="fas fa-bell"></i>
+                        <span>Alertas</span>
+                    </a>
+                    <a href="#" data-view="etiquetas" class="nav-link">
+                        <i class="fas fa-tag"></i>
+                        <span>Etiquetas</span>
+                    </a>
+                    <a href="#" data-view="reportes" class="nav-link">
+                        <i class="fas fa-file-pdf"></i>
+                        <span>Reportes</span>
+                    </a>
+                    <a href="#" data-view="usuarios" class="nav-link" data-role="usuarios">
+                        <i class="fas fa-users"></i>
+                        <span>Usuarios</span>
+                    </a>
+                    <a href="#" data-view="logs" class="nav-link" data-role="logs">
+                        <i class="fas fa-history"></i>
+                        <span>Auditoría</span>
+                    </a>
+                    <a href="#" data-view="manual" class="nav-link">
+                        <i class="fas fa-book"></i>
+                        <span>Manual</span>
+                    </a>
+                </nav>
+                
+                <div class="sidebar-footer">
+                    <div class="user-info">
+                        <div class="user-avatar">
+                            <i class="fas fa-user-circle"></i>
+                        </div>
+                        <div class="user-details">
+                            <p id="currentUserName">Usuario</p>
+                            <small>Administrador</small>
+                        </div>
+                    </div>
+                    <button id="logoutBtn" class="btn-icon logout" title="Cerrar sesión">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </button>
+                </div>
+            </aside>
+            
+            <!-- ======================== MAIN CONTENT ======================== -->
+            <main class="main-content">
+                
+                <!-- ======================== HEADER ======================== -->
+                <header class="app-header">
+                    <div class="breadcrumb">
+                        <span id="breadcrumbText">Dashboard</span>
+                    </div>
+                    <div class="header-actions">
+                        <div class="search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" placeholder="Buscar...">
+                        </div>
+                        <button class="btn-icon">
+                            <i class="fas fa-bell"></i>
+                            <span class="notification-badge">3</span>
+                        </button>
+                        <button class="btn-icon">
+                            <i class="fas fa-cog"></i>
+                        </button>
+                    </div>
+                </header>
+                
+                <!-- ======================== VIEWS CONTAINER ======================== -->
+                <div class="views-container">
+                    
+                    <!-- ======================== DASHBOARD ======================== -->
+                    <section id="dashboard" class="view active">
+                        <div class="dashboard-header">
+                            <h1>Dashboard</h1>
+                            <p>Bienvenido al sistema de gestión de café</p>
+                        </div>
+                        
+                        <!-- KPIs -->
+                        <div class="kpi-grid">
+                            <div class="kpi-card">
+                                <div class="kpi-icon active-lots">
+                                    <i class="fas fa-boxes"></i>
+                                </div>
+                                <div class="kpi-info">
+                                    <p class="kpi-label">Lotes Activos</p>
+                                    <p class="kpi-value kpi-active-lots">0</p>
+                                </div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="kpi-icon expiring">
+                                    <i class="fas fa-hourglass-end"></i>
+                                </div>
+                                <div class="kpi-info">
+                                    <p class="kpi-label">Por Caducar</p>
+                                    <p class="kpi-value kpi-expiring-lots">0</p>
+                                </div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="kpi-icon warning">
+                                    <i class="fas fa-exclamation-triangle"></i>
+                                </div>
+                                <div class="kpi-info">
+                                    <p class="kpi-label">Stock Bajo</p>
+                                    <p class="kpi-value kpi-low-stock">0</p>
+                                </div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="kpi-icon alerts">
+                                    <i class="fas fa-bell"></i>
+                                </div>
+                                <div class="kpi-info">
+                                    <p class="kpi-label">Alertas Activas</p>
+                                    <p class="kpi-value kpi-active-alerts">0</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Gráficas -->
+                        <div class="charts-grid">
+                            <div class="chart-card">
+                                <h3>Niveles de Stock</h3>
+                                <canvas id="stockChart"></canvas>
+                            </div>
+                            <div class="chart-card">
+                                <h3>Alertas por Tipo</h3>
+                                <canvas id="alertsChart"></canvas>
+                            </div>
+                        </div>
+                        
+                        <!-- Alertas Recientes -->
+                        <div class="section">
+                            <h3>Alertas Recientes</h3>
+                            <div id="dashboardAlerts" class="alerts-list"></div>
+                        </div>
+                        
+                        <!-- Lotes Recientes -->
+                        <div class="section">
+                            <h3>Lotes Recientes</h3>
+                            <table id="dashboardLotsTable" class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Código</th>
+                                        <th>Origen</th>
+                                        <th>Tueste</th>
+                                        <th>Fecha Tueste</th>
+                                        <th>Caducidad</th>
+                                        <th>Estado</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="recentLotsBody"></tbody>
+                            </table>
+                        </div>
+                    </section>
+                    
+                    <!-- ======================== LOTES ======================== -->
+                    <section id="lotes" class="view">
+                        <div class="section-header">
+                            <h1>Gestión de Lotes</h1>
+                            <button id="newLoteBtn" class="btn btn-primary">
+                                <i class="fas fa-plus"></i> Nuevo Lote
+                            </button>
+                        </div>
+                        
+                        <!-- Filtros -->
+                        <div class="filters-section">
+                            <input type="text" id="filterOrigen" class="filter-input" placeholder="Origen...">
+                            <select id="filterEstado" class="filter-input">
+                                <option value="">Todos los estados</option>
+                                <option value="Activo">Activo</option>
+                                <option value="Stock Bajo">Stock Bajo</option>
+                                <option value="Por Caducar">Por Caducar</option>
+                            </select>
+                            <input type="date" id="filterDesde" class="filter-input">
+                            <input type="date" id="filterHasta" class="filter-input">
+                            <button id="applyLotesFilter" class="btn btn-secondary">
+                                <i class="fas fa-filter"></i> Filtrar
+                            </button>
+                            <button onclick="clearFilters()" class="btn btn-outline">
+                                <i class="fas fa-times"></i> Limpiar
+                            </button>
+                        </div>
+                        
+                        <!-- Tabla de Lotes -->
+                        <table id="lotesTable" class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Código</th>
+                                    <th>Producto</th>
+                                    <th>Origen</th>
+                                    <th>Tueste</th>
+                                    <th>Peso Actual</th>
+                                    <th>Fecha Tueste</th>
+                                    <th>Caducidad</th>
+                                    <th>Estado</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="lotesTableBody"></tbody>
+                        </table>
+                        
+                        <!-- Paginación -->
+                        <div id="paginationContainer" class="pagination"></div>
+                    </section>
+                    
+                    <!-- ======================== PRODUCTOS ======================== -->
+                    <section id="productos" class="view">
+                        <div class="section-header">
+                            <h1>Catálogo de Productos</h1>
+                            <button id="newProductoBtn" class="btn btn-primary">
+                                <i class="fas fa-plus"></i> Nuevo Producto
+                            </button>
+                        </div>
+                        
+                        <!-- Tabla de Productos -->
+                        <table id="productosTable" class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Nombre</th>
+                                    <th>Origen</th>
+                                    <th>Tipo Grano</th>
+                                    <th>Stock</th>
+                                    <th>Estado</th>
+                                    <th>Precio</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="productosTableBody"></tbody>
+                        </table>
+                    </section>
+                    
+                    <!-- ======================== ALERTAS ======================== -->
+                    <section id="alertas" class="view">
+                        <div class="section-header">
+                            <h1>Centro de Alertas</h1>
+                        </div>
+                        
+                        <!-- Tabla de Alertas -->
+                        <table id="alertasTable" class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Tipo</th>
+                                    <th>Mensaje</th>
+                                    <th>Prioridad</th>
+                                    <th>Estado</th>
+                                    <th>Fecha</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="alertasTableBody"></tbody>
+                        </table>
+                    </section>
+                    
+                    <!-- ======================== ETIQUETAS ======================== -->
+                    <section id="etiquetas" class="view">
+                        <div class="section-header">
+                            <h1>Generación de Etiquetas</h1>
+                        </div>
+                        
+                        <div id="plantillasContainer" class="plantillas-grid"></div>
+                        <div id="labelGenerationForm" class="form-section hidden"></div>
+                    </section>
+                    
+                    <!-- ======================== REPORTES ======================== -->
+                    <section id="reportes" class="view">
+                        <div class="section-header">
+                            <h1>Centro de Reportes</h1>
+                        </div>
+                        
+                        <!-- Generador de Reportes -->
+                        <div class="form-section">
+                            <h3>Generar Nuevo Reporte</h3>
+                            <form id="reporteForm" class="form">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="reporteType">Tipo de Reporte</label>
+                                        <select id="reporteType" required>
+                                            <option value="">Selecciona un tipo</option>
+                                            <option value="inventario">Inventario Actual</option>
+                                            <option value="mermas">Análisis de Mermas</option>
+                                            <option value="movimientos">Movimientos de Stock</option>
+                                            <option value="ejecutivo">Resumen Ejecutivo</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="reporteStartDate">Fecha Inicio</label>
+                                        <input type="date" id="reporteStartDate" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="reporteEndDate">Fecha Fin</label>
+                                        <input type="date" id="reporteEndDate" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="reporteFormat">Formato</label>
+                                        <select id="reporteFormat">
+                                            <option value="PDF">PDF</option>
+                                            <option value="CSV">CSV</option>
+                                            <option value="Excel">Excel</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <button id="generateReporteBtn" type="button" class="btn btn-primary">
+                                    <i class="fas fa-file-pdf"></i> Generar Reporte
+                                </button>
+                            </form>
+                        </div>
+                        
+                        <!-- Tabla de Reportes -->
+                        <div class="form-section">
+                            <h3>Reportes Disponibles</h3>
+                            <table id="reportesTable" class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Nombre</th>
+                                        <th>Descripción</th>
+                                        <th>Frecuencia</th>
+                                        <th>Formato</th>
+                                        <th>Última Generación</th>
+                                        <th>Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="reportesTableBody"></tbody>
+                            </table>
+                        </div>
+                    </section>
+                    
+                    <!-- ======================== USUARIOS ======================== -->
+                    <section id="usuarios" class="view" data-role="usuarios">
+                        <div class="section-header">
+                            <h1>Administración de Usuarios</h1>
+                            <button id="newUsuarioBtn" class="btn btn-primary">
+                                <i class="fas fa-plus"></i> Nuevo Usuario
+                            </button>
+                        </div>
+                        
+                        <!-- Tabla de Usuarios -->
+                        <table id="usuariosTable" class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Nombre</th>
+                                    <th>Email</th>
+                                    <th>Rol</th>
+                                    <th>Estado</th>
+                                    <th>Último Login</th>
+                                    <th>Creación</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="usuariosTableBody"></tbody>
+                        </table>
+                    </section>
+                    
+                    <!-- ======================== LOGS ======================== -->
+                    <section id="logs" class="view" data-role="logs">
+                        <div class="section-header">
+                            <h1>Log de Sesiones</h1>
+                        </div>
+                        
+                        <!-- Tabla de Logs -->
+                        <table id="logsTable" class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Usuario</th>
+                                    <th>Email</th>
+                                    <th>Acción</th>
+                                    <th>Fecha/Hora</th>
+                                    <th>IP</th>
+                                    <th>Navegador</th>
+                                    <th>Estado</th>
+                                </tr>
+                            </thead>
+                            <tbody id="sessionLogsBody"></tbody>
+                        </table>
+                    </section>
+                    
+                    <!-- ======================== MANUAL ======================== -->
+                    <section id="manual" class="view">
+                        <div class="section-header">
+                            <h1>Manual de Usuario</h1>
+                        </div>
+                        
+                        <div class="manual-container">
+                            <div class="manual-nav">
+                                <button onclick="loadManualSection('inicio')" class="manual-btn">
+                                    <i class="fas fa-home"></i> Inicio
+                                </button>
+                                <button onclick="loadManualSection('lotes')" class="manual-btn">
+                                    <i class="fas fa-boxes"></i> Lotes
+                                </button>
+                                <button onclick="loadManualSection('productos')" class="manual-btn">
+                                    <i class="fas fa-shopping-bag"></i> Productos
+                                </button>
+                                <button onclick="loadManualSection('usuarios')" class="manual-btn">
+                                    <i class="fas fa-users"></i> Usuarios
+                                </button>
+                                <button onclick="loadManualSection('alertas')" class="manual-btn">
+                                    <i class="fas fa-bell"></i> Alertas
+                                </button>
+                                <button onclick="loadManualSection('etiquetas')" class="manual-btn">
+                                    <i class="fas fa-tag"></i> Etiquetas
+                                </button>
+                            </div>
+                            <div id="manualContent" class="manual-content"></div>
+                        </div>
+                    </section>
+                </div>
+            </main>
+        </div>
+    </div>
+    
+    <!-- ======================== MODALES ======================== -->
+    
+    <!-- Modal Lote -->
+    <div id="loteModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="loteFormTitle">Nuevo Lote</h2>
+                <button id="closeLoteModal" class="btn-close">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <form id="loteForm" class="form">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="codigo">Código</label>
+                        <input type="text" id="codigo" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="producto">Producto</label>
+                        <input type="text" id="producto" required>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="origen">Origen</label>
+                        <input type="text" id="origen" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="tipoTueste">Tipo de Tueste</label>
+                        <select id="tipoTueste" required>
+                            <option value="">Selecciona</option>
+                            <option value="Claro">Claro</option>
+                            <option value="Medio">Medio</option>
+                            <option value="Oscuro">Oscuro</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="pesoInicial">Peso Inicial (kg)</label>
+                        <input type="number" id="pesoInicial" step="0.01" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="pesoActual">Peso Actual (kg)</label>
+                        <input type="number" id="pesoActual" step="0.01" required>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="fechaTueste">Fecha de Tueste</label>
+                        <input type="date" id="fechaTueste" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="fechaCaducidad">Fecha de Caducidad</label>
+                        <input type="date" id="fechaCaducidad" required>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="estado">Estado</label>
+                        <select id="estado" required>
+                            <option value="Activo">Activo</option>
+                            <option value="Stock Bajo">Stock Bajo</option>
+                            <option value="Por Caducar">Por Caducar</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="notas">Notas</label>
+                    <textarea id="notas" rows="3"></textarea>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Guardar</button>
+                    <button type="button" onclick="closeLoteModal()" class="btn btn-outline">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Modal Producto -->
+    <div id="productoModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="productoFormTitle">Nuevo Producto</h2>
+                <button id="closeProductoModal" class="btn-close">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <form id="productoForm" class="form">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="nombreProducto">Nombre</label>
+                        <input type="text" id="nombreProducto" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="origenProducto">Origen</label>
+                        <input type="text" id="origenProducto" required>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="tipoGranoProducto">Tipo de Grano</label>
+                        <select id="tipoGranoProducto">
+                            <option value="Arábica">Arábica</option>
+                            <option value="Robusta">Robusta</option>
+                            <option value="Mezcla">Mezcla</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="precioProducto">Precio Unitario</label>
+                        <input type="number" id="precioProducto" step="0.01">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="stockActualProducto">Stock Actual</label>
+                        <input type="number" id="stockActualProducto" step="0.01">
+                    </div>
+                    <div class="form-group">
+                        <label for="stockMinimoProducto">Stock Mínimo</label>
+                        <input type="number" id="stockMinimoProducto" step="0.01">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="descripcionProducto">Descripción</label>
+                    <textarea id="descripcionProducto" rows="3"></textarea>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Guardar</button>
+                    <button type="button" onclick="closeProductoModal()" class="btn btn-outline">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Modal Usuario -->
+    <div id="usuarioModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="usuarioFormTitle">Nuevo Usuario</h2>
+                <button id="closeUsuarioModal" class="btn-close">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <form id="usuarioForm" class="form">
+                <div class="form-group">
+                    <label for="nombreUsuario">Nombre</label>
+                    <input type="text" id="nombreUsuario" required>
+                </div>
+                <div class="form-group">
+                    <label for="emailUsuario">Email</label>
+                    <input type="email" id="emailUsuario" required>
+                </div>
+                <div id="passwordUsuarioGroup" class="form-group">
+                    <label for="passwordUsuario">Contraseña</label>
+                    <input type="password" id="passwordUsuario">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="rolUsuario">Rol</label>
+                        <select id="rolUsuario" required>
+                            <option value="admin">Administrador</option>
+                            <option value="warehouse">Almacenista</option>
+                            <option value="barista">Barista</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="estadoUsuario">Estado</label>
+                        <select id="estadoUsuario" required>
+                            <option value="activo">Activo</option>
+                            <option value="inactivo">Inactivo</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Guardar</button>
+                    <button type="button" onclick="closeUsuarioModal()" class="btn btn-outline">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- ======================== LOADER GLOBAL ======================== -->
+    <div id="globalLoader" class="global-loader hidden">
+        <div class="spinner">
+            <div class="spinner-ring"></div>
+        </div>
+    </div>
+    
+    <!-- ======================== TOAST CONTAINER ======================== -->
+    <div id="toastContainer" class="toast-container"></div>
+    
+    <!-- Scripts -->
+    <script src="app-complete.js"></script>
+    <script src="app-complete.js"></script>
+</body>
+</html>
