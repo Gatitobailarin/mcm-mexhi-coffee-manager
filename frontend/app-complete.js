@@ -7,7 +7,6 @@
  * Frontend: HTML5 + CSS3 + Vanilla JavaScript
  * ===============================================================
  */
-
 // ======================== CONFIGURACIÓN GLOBAL ========================
 const CONFIG = {
   API_BASE_URL: 'http://localhost:4000/api',
@@ -275,32 +274,37 @@ async function handleLogin(e) {
   }
   
   try {
-    const result = await apiCall('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password })
-    });
-    
-    if (result.success) {
-      STATE.authToken = result.data.token;
-      STATE.currentUser = result.data.user;
-      STATE.currentRole = result.data.user.rol || 'admin';
-      
-      // Guardar token
-      localStorage.setItem('mcm_auth_token', STATE.authToken);
-      
-      showToast(`¡Bienvenido ${result.data.user.nombre}!`, 'success');
-      
-      // Limpiar formulario
-      document.getElementById('loginForm')?.reset();
-      
-      // Cambiar vista
-      showView('dashboard');
-      updateRoleBasedUI();
-      loadDashboard();
-    }
-  } catch (error) {
-    showToast('Error en login: ' + error.message, 'error');
+  const result = await apiCall('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email, password })
+  });
+
+  console.log('RESULTADO COMPLETO:', result);
+
+  if (!result.success) {
+    return;
   }
+
+  const { token, usuario } = result.data;
+
+  STATE.authToken = token;
+  STATE.currentUser = usuario;
+  STATE.currentRole = usuario.rol || 'admin';
+
+  localStorage.setItem('mcm_auth_token', token);
+
+  showToast(`¡Bienvenido ${usuario.nombre}!`, 'success');
+
+  document.getElementById('loginForm')?.reset();
+
+  showView('dashboard');
+  updateRoleBasedUI();
+  loadDashboard();
+
+} catch (error) {
+  console.log("Error:", error)
+  showToast('Error en login: ' + error.message, 'error');
+}
 }
 
 /**
@@ -444,9 +448,9 @@ function updateRoleBasedUI() {
 async function loadDashboard() {
   try {
     const [kpisRes, alertasRes, lotesRes] = await Promise.all([
-      apiCall('/dashboard/kpis').catch(() => ({ success: false, data: {} })),
-      apiCall('/alertas?limit=6&estado=Activo').catch(() => ({ success: false, data: [] })),
-      apiCall('/lotes?limit=8&order=fechaTueste DESC').catch(() => ({ success: false, data: [] }))
+      // apiCall('/dashboard/kpis').catch(() => ({ success: false, data: {} })),
+      apiCall('/alertas/test/?limit=6&estado=Activo').catch(() => ({ success: false, data: [] })),
+      apiCall('/lotes/test/?limit=8&order=fechaTueste DESC').catch(() => ({ success: false, data: [] }))
     ]);
     
     // Actualizar KPIs
@@ -1839,5 +1843,4 @@ if (typeof document !== 'undefined') {
   `;
   document.head.appendChild(style);
 }
-
 console.log('%c✓ App.js cargado correctamente', 'color: #22C55E; font-weight: bold;');

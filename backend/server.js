@@ -18,17 +18,31 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // ✅ CORS CONFIGURADO PROFESIONAL
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:8080',
+  'http://127.0.0.1:8081',
+  'http://localhost:3000',
+  'http://localhost:5500',
+  'http://192.168.100.72:8081'
+];
+
 app.use(cors({
-  origin: [
-    'http://127.0.0.1:8080',
-    'http://localhost:8080',
-    'http://localhost:5500',
-    'http://localhost:3000'
-  ],
+  origin: function (origin, callback) {
+    // Permitir herramientas como Postman o curl
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    } else {
+      console.error('❌ CORS bloqueado para origen:', origin);
+      return callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  maxAge: 86400
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 // Logging middleware
@@ -236,9 +250,9 @@ app.get('/api/lotes/test', async (req, res) => {
         tipoTueste, 
         peso, 
         estado,
-        creadoEn
+        fecha
       FROM Lotes 
-      ORDER BY creadoEn DESC
+      ORDER BY fecha DESC
     `);
 
     res.json({
@@ -272,7 +286,7 @@ app.get('/api/productos/test', async (req, res) => {
         precio,
         estado
       FROM Productos
-      ORDER BY creadoEn DESC
+      ORDER BY fecha DESC
     `);
 
     res.json({
@@ -305,9 +319,9 @@ app.get('/api/alertas/test', async (req, res) => {
         tipo,
         prioridad,
         estado,
-        creadoEn
+        fecha
       FROM Alertas
-      ORDER BY creadoEn DESC
+      ORDER BY fecha DESC
     `);
 
     res.json({
