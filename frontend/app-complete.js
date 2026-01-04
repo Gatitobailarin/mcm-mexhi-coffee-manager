@@ -316,7 +316,95 @@ function setInputValue(id, value) {
   }
 }
 
+// ============================================
+// FUNCIÓN showDashboard
+// ============================================
+function showDashboard() {
+  try {
+    console.log('🎯 Mostrando dashboard...');
+    
+    // Ocultar login
+    const loginScreen = document.getElementById('loginScreen');
+    const mainApp = document.getElementById('mainApp');
+    
+    if (loginScreen) {
+      loginScreen.classList.add('hidden');
+      loginScreen.style.display = 'none';
+    }
+    
+    if (mainApp) {
+      mainApp.classList.remove('hidden');
+      mainApp.style.display = 'flex';
+      mainApp.classList.add('active');
+    }
+    
+    // Mostrar nombre del usuario
+    const user = JSON.parse(localStorage.getItem('mcm_user') || '{}');
+    const userNameElement = document.getElementById('userName');
+    if (userNameElement) {
+      userNameElement.textContent = user.nombre || user.email || 'Usuario';
+    }
+    
+    // Cargar datos del dashboard
+    loadDashboardData();
+    
+    console.log('✅ Dashboard cargado correctamente');
+    
+  } catch (error) {
+    console.error('❌ Error mostrando dashboard:', error);
+    alert('Error: ' + error.message);
+  }
+}
 
+// ============================================
+// FUNCIÓN loadDashboardData
+// ============================================
+async function loadDashboardData() {
+  try {
+    console.log('📊 Cargando datos del dashboard...');
+    
+    const baseURL = 'http://localhost:4000';
+    const token = localStorage.getItem('mcm_token');
+    
+    // Cargar KPIs
+    const kpisRes = await fetch(baseURL + '/api/dashboard/kpis', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const kpis = await kpisRes.json();
+    
+    if (kpis.success) {
+      document.getElementById('activeLots').textContent = kpis.data.lotesActivos || 0;
+      document.getElementById('expiringLots').textContent = kpis.data.proximosCaducar || 0;
+      document.getElementById('lowStockProducts').textContent = kpis.data.stockBajo || 0;
+      document.getElementById('activeAlerts').textContent = kpis.data.alertasPendientes || 0;
+    }
+    
+    // Cargar lotes
+    const lotesRes = await fetch(baseURL + '/api/lotes', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const lotes = await lotesRes.json();
+    
+    if (lotes.success) {
+      const table = document.querySelector('#lotesTable tbody');
+      if (table) {
+        table.innerHTML = lotes.data.slice(0, 5).map(lote => `
+          <tr>
+            <td>${lote.code || lote.codigo}</td>
+            <td>${lote.product || lote.producto}</td>
+            <td>${lote.origin || lote.origen}</td>
+            <td><span class="status">${lote.status || lote.estado}</span></td>
+          </tr>
+        `).join('');
+      }
+    }
+    
+    console.log('✅ Datos cargados correctamente');
+    
+  } catch (error) {
+    console.error('❌ Error cargando datos:', error);
+  }
+}
 
 /**
  * Cerrar sesión
