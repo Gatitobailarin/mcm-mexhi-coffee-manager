@@ -91,7 +91,7 @@ CREATE TABLE Alertas (
     FOREIGN KEY (generadoPor) REFERENCES Usuarios(id)
 );
 
--- COLA DE IMPRESIÓN
+-- COLA DE IMPRESIï¿½N
 CREATE TABLE ColaImpresionEtiquetas (
     id INT IDENTITY(1,1) PRIMARY KEY,
     loteId INT NOT NULL,
@@ -112,7 +112,7 @@ CREATE TABLE HistorialAccesos (
     FOREIGN KEY (usuarioId) REFERENCES Usuarios(id)
 );
 
--- AUDITORÍA
+-- AUDITORï¿½A
 CREATE TABLE AuditLog (
     id INT IDENTITY(1,1) PRIMARY KEY,
     entidad NVARCHAR(50),
@@ -127,8 +127,8 @@ CREATE TABLE AuditLog (
 -- ROLES Y PERMISOS
 INSERT INTO Roles (nombre, descripcion) VALUES 
 ('Administrador', 'Acceso completo al sistema'),
-('Barista', 'Gestión de lotes y etiquetas'),
-('Almacenista', 'Gestión de inventario y lotes');
+('Barista', 'Gestiï¿½n de lotes y etiquetas'),
+('Almacenista', 'Gestiï¿½n de inventario y lotes');
 
 INSERT INTO Permisos (modulo, puedeVer, puedeCrear, puedeEditar, puedeEliminar) VALUES
 ('dashboard', 1, 0, 0, 0),
@@ -138,15 +138,15 @@ INSERT INTO Permisos (modulo, puedeVer, puedeCrear, puedeEditar, puedeEliminar) 
 ('etiquetas', 1, 1, 0, 0),
 ('reportes', 1, 0, 0, 0);
 
--- USUARIOS (contraseñas hasheadas con bcrypt)
+-- USUARIOS (contraseï¿½as hasheadas con bcrypt)
 INSERT INTO Usuarios (nombre, email, passwordHash, rolId) VALUES 
 ('Administrador', 'admin@mexhi.com', '$2b$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 1),
-('Ana García', 'ana@mexhi.com', '$2b$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 2),
+('Ana Garcï¿½a', 'ana@mexhi.com', '$2b$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 2),
 ('Juan Morales', 'juan@mexhi.com', '$2b$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 3);
 
 -- PRODUCTOS (datos de mock_data.json)
 INSERT INTO Productos (nombre, origen, presentacion, stockMinimo, stockActual, precio, descripcion) VALUES 
-('Colombia Huila Premium', 'Colombia Huila', '250g', 20, 45, 180.00, 'Café premium con notas florales y cuerpo medio'),
+('Colombia Huila Premium', 'Colombia Huila', '250g', 20, 45, 180.00, 'Cafï¿½ premium con notas florales y cuerpo medio'),
 ('Guatemala Antigua Oscuro', 'Guatemala Antigua', '500g', 15, 32, 220.00, 'Tueste oscuro con cuerpo completo y notas achocolatadas');
 
 -- LOTES (datos de mock_data.json)

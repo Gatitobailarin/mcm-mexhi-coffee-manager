@@ -237,75 +237,86 @@ function setInputValue(id, value) {
 
 /**
  * Validar token con el servidor
- */
-async function validateToken() {
-  const result = await apiCall('/auth/validate', {
-    method: 'GET'
-  });
+ */async function handleLogin(e) {
+  e.preventDefault();
   
-  if (result.success && result.data.valid) {
-    STATE.currentUser = result.data.user;
-    STATE.currentRole = result.data.user.rol || 'user';
-    showView('dashboard');
-    updateRoleBasedUI();
-  } else {
-    handleLogout();
-  }
-}
-
-/**
- * Manejar login
- */
-async function handleLogin(e) {
-  if (e) e.preventDefault();
+  // Obtener inputs con los IDs CORRECTOS de tu HTML
+  const emailInput = document.getElementById('loginEmail');
+  const passwordInput = document.getElementById('loginPassword');
   
-  const email = getInputValue('loginEmail');
-  const password = getInputValue('loginPassword');
-  
-  // Validaciones
-  if (!email || !password) {
-    showToast('Por favor completa todos los campos', 'warning');
+  // Verificar que existen
+  if (!emailInput || !passwordInput) {
+    console.error('❌ HTML ERROR: No se encontraron inputs');
+    alert('Error: Inputs no encontrados en HTML');
     return;
   }
   
-  if (!validateEmail(email)) {
-    showToast('Email inválido', 'warning');
+  const email = emailInput.value.trim();
+  const password = passwordInput.value.trim();
+  
+  // Validar campos
+  if (!email || !password) {
+    alert('Por favor completa email y contraseña');
     return;
   }
   
   try {
-  const result = await apiCall('/auth/login', {
-    method: 'POST',
-    body: JSON.stringify({ email, password })
-  });
-
-  console.log('RESULTADO COMPLETO:', result);
-
-  if (!result.success) {
-    return;
+    console.log('📤 API Request: POST /auth/login');
+    
+    // Determinar URL base correcta
+    const baseURL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+      ? 'http://localhost:4000'
+      : window.location.origin;
+    
+    const response = await fetch(baseURL + '/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    
+    const result = await response.json();
+    console.log('✅ API Response:', result);
+    console.log('RESULTADO COMPLETO:', result);
+    
+    if (!result.success) {
+      alert(result.message || 'Login fallido');
+      return;
+    }
+    
+    // Obtener usuario de forma segura
+    const user = result.data?.user || result.user || {};
+    const token = result.data?.token || result.token;
+    
+    if (!user || !user.rol) {
+      console.error('❌ Usuario incompleto:', user);
+      alert('Error: Datos de usuario incompletos');
+      return;
+    }
+    
+    // Guardar en localStorage
+    localStorage.setItem('mcm_token', token);
+    localStorage.setItem('mcm_user', JSON.stringify(user));
+    
+    console.log('✅ Login exitoso:', user);
+    
+    // Mostrar dashboard
+    if (typeof showDashboard === 'function') {
+      showDashboard();
+    }
+    
+    alert('¡Bienvenido ' + (user.nombre || user.email) + '!');
+    
+    // Limpiar formulario
+    emailInput.value = '';
+    passwordInput.value = '';
+    
+  } catch (error) {
+    console.error('❌ Error login:', error);
+    alert('Error de conexión: ' + error.message);
   }
-
-  const { token, usuario } = result.data;
-
-  STATE.authToken = token;
-  STATE.currentUser = usuario;
-  STATE.currentRole = usuario.rol || 'admin';
-
-  localStorage.setItem('mcm_auth_token', token);
-
-  showToast(`¡Bienvenido ${usuario.nombre}!`, 'success');
-
-  document.getElementById('loginForm')?.reset();
-
-  showView('dashboard');
-  updateRoleBasedUI();
-  loadDashboard();
-
-} catch (error) {
-  console.log("Error:", error)
-  showToast('Error en login: ' + error.message, 'error');
 }
-}
+
+
 
 /**
  * Cerrar sesión
