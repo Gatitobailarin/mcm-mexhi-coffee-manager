@@ -402,6 +402,57 @@ app.delete('/api/productos/:id', authMiddleware, (req, res) => {
  * GET /api/alertas
  * Obtiene todas las alertas
  */
+
+// ============================================
+// ETIQUETAS ENDPOINTS
+// ============================================
+
+app.get('/api/etiquetas/plantillas', authMiddleware, (req, res) => {
+  res.json({
+    success: true,
+    message: 'Plantillas obtenidas',
+    data: mockData.labelTemplates || []
+  });
+});
+
+// ============================================
+// REPORTES ENDPOINTS
+// ============================================
+
+app.get('/api/reportes', authMiddleware, (req, res) => {
+  res.json({
+    success: true,
+    message: 'Reportes obtenidos',
+    data: mockData.reports || []
+  });
+});
+
+app.post('/api/reportes/generar', authMiddleware, (req, res) => {
+  res.json({
+    success: true,
+    message: 'Reporte generado',
+    data: {
+      id: Date.now(),
+      nombre: req.body.tipo || 'Reporte',
+      tipo: req.body.tipo,
+      fecha: new Date().toISOString(),
+      url: '/reportes/reporte_' + Date.now() + '.pdf'
+    }
+  });
+});
+
+// ============================================
+// LOGS ENDPOINTS
+// ============================================
+
+app.get('/api/logs/sesiones', authMiddleware, (req, res) => {
+  res.json({
+    success: true,
+    message: 'Logs de sesión obtenidos',
+    data: mockData.sessionLogs || []
+  });
+});
+
 app.get('/api/alertas', authMiddleware, (req, res) => {
   res.json({
     success: true,

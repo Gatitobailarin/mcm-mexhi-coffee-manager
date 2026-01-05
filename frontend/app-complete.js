@@ -61,45 +61,69 @@ document.addEventListener('DOMContentLoaded', async function() {
 /**
  * Llamada centralizada a la API
  */
-async function apiCall(endpoint, options = {}) {
+
+async function apiCall(endpoint, method = 'GET', data = null) {
   try {
-    STATE.isLoading = true;
-    showLoading(true);
+    console.log(`📤 API Request: ${method} ${endpoint}`);
     
-    const headers = {
-      'Content-Type': 'application/json',
-      ...(STATE.authToken && { 'Authorization': `Bearer ${STATE.authToken}` })
-    };
+    // 🔑 PRIMERO variable global, LUEGO localStorage
+    let token = window.mcm_token || localStorage.getItem('mcm_token');
     
-    const config = {
-      ...options,
-      headers: { ...headers, ...options.headers }
-    };
+    console.log('🔐 Token fuente:', window.mcm_token ? 'window.mcm_token ✓' : 'localStorage');
     
-    console.log(`📤 API Request: ${options.method || 'GET'} ${endpoint}`);
-    
-    const response = await fetch(`${CONFIG.API_BASE_URL}${endpoint}`, config);
-    const data = await response.json();
-    
-    if (!response.ok) {
-      if (response.status === 401) {
-        handleLogout();
-        throw new Error('Sesión expirada');
+    if (!token) {
+      console.error('❌ NO HAY TOKEN');
+      if (typeof showLogin === 'function') {
+        showLogin();
       }
-      throw new Error(data.message || data.error || `HTTP ${response.status}`);
+      throw new Error('Sesión expirada');
     }
     
-    console.log(`✅ API Response:`, data);
-    return { success: true, data: data.data || data, pagination: data.pagination };
+    // ✅ RESTO DEL CÓDIGO
+    const headers = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'Authorization': `Bearer ${token}`
+    };
+    
+    const options = {
+      method: method,
+      headers: headers
+    };
+    
+    if (data) {
+      options.body = JSON.stringify(data);
+    }
+    
+    const baseURL = 'http://localhost:4000';
+    const url = `${baseURL}/api${endpoint}`;
+    
+    const response = await fetch(url, options);
+    
+    if (response.status === 401) {
+      console.error('❌ 401 - Token rechazado');
+      window.mcm_token = null;
+      localStorage.removeItem('mcm_token');
+      if (typeof showLogin === 'function') {
+        showLogin();
+      }
+      throw new Error('Sesión expirada');
+    }
+    
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`HTTP ${response.status}`);
+    }
+    
+    const result = await response.json();
+    return result;
+    
   } catch (error) {
     console.error('❌ API Error:', error);
-    showToast(error.message, 'error');
-    return { success: false, data: [], error: error.message };
-  } finally {
-    STATE.isLoading = false;
-    showLoading(false);
+    throw error;
   }
 }
+
 
 /**
  * Mostrar/ocultar loading spinner
@@ -237,16 +261,16 @@ function setInputValue(id, value) {
 
 /**
  * Validar token con el servidor
- */async function handleLogin(e) {
+ */
+
+async function handleLogin(e) {
   e.preventDefault();
   
-  // Obtener inputs con los IDs CORRECTOS de tu HTML
   const emailInput = document.getElementById('loginEmail');
   const passwordInput = document.getElementById('loginPassword');
   
-  // Verificar que existen
   if (!emailInput || !passwordInput) {
-    console.error('❌ HTML ERROR: No se encontraron inputs');
+    console.error('❌ Inputs no encontrados');
     alert('Error: Inputs no encontrados en HTML');
     return;
   }
@@ -254,7 +278,6 @@ function setInputValue(id, value) {
   const email = emailInput.value.trim();
   const password = passwordInput.value.trim();
   
-  // Validar campos
   if (!email || !password) {
     alert('Por favor completa email y contraseña');
     return;
@@ -262,47 +285,74 @@ function setInputValue(id, value) {
   
   try {
     console.log('📤 API Request: POST /auth/login');
+    console.log('Credenciales:', { email, password });
     
-    // Determinar URL base correcta
-    const baseURL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-      ? 'http://localhost:4000'
-      : window.location.origin;
+    const baseURL = 'http://localhost:4000';
     
     const response = await fetch(baseURL + '/api/auth/login', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
       body: JSON.stringify({ email, password })
     });
     
+    console.log('Response Status:', response.status);
+    
+    if (response.status === 405) {
+      alert('Error 405: Backend no responde correctamente');
+      return;
+    }
+    
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`HTTP ${response.status}: ${text}`);
+    }
+    
+    const contentType = response.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      throw new Error('Respuesta no es JSON');
+    }
+    
     const result = await response.json();
-    console.log('✅ API Response:', result);
-    console.log('RESULTADO COMPLETO:', result);
+    console.log('✅ Login Response:', result);
     
     if (!result.success) {
       alert(result.message || 'Login fallido');
       return;
     }
     
-    // Obtener usuario de forma segura
-    const user = result.data?.user || result.user || {};
+    // ✅ CRÍTICO: Extraer token y usuario
     const token = result.data?.token || result.token;
+    const user = result.data?.user || result.user || {};
     
-    if (!user || !user.rol) {
+    console.log('Token recibido:', token);
+    console.log('Usuario recibido:', user);
+    
+    if (!token) {
+      console.error('❌ No hay token en respuesta:', result);
+      alert('Error: No se recibió token de autenticación');
+      return;
+    }
+    
+    if (!user.id || !user.email) {
       console.error('❌ Usuario incompleto:', user);
       alert('Error: Datos de usuario incompletos');
       return;
     }
-    
-    // Guardar en localStorage
+        // ✅ CRÍTICO: GUARDAR TOKEN Y USUARIO ANTES DE NAVEGAR
     localStorage.setItem('mcm_token', token);
     localStorage.setItem('mcm_user', JSON.stringify(user));
     
-    console.log('✅ Login exitoso:', user);
+    // ✅ GUARDAR EN VARIABLE GLOBAL TAMBIÉN (para evitar race condition)
+    window.mcm_token = token;
+    window.mcm_user = user;
     
-    // Mostrar dashboard
-    if (typeof showDashboard === 'function') {
-      showDashboard();
-    }
+    // Verificar que se guardó
+    console.log('✅ Token guardado en localStorage:', localStorage.getItem('mcm_token'));
+    console.log('✅ Token guardado en variable global:', window.mcm_token);
+    console.log('✅ Usuario guardado:', localStorage.getItem('mcm_user'));
     
     alert('¡Bienvenido ' + (user.nombre || user.email) + '!');
     
@@ -310,11 +360,20 @@ function setInputValue(id, value) {
     emailInput.value = '';
     passwordInput.value = '';
     
+    // ✅ NAVEGAR AL DASHBOARD DESPUÉS de guardar
+    console.log('📊 Navegando a Dashboard...');
+    if (typeof showDashboard === 'function') {
+      showDashboard();
+    } else if (typeof showView === 'function') {
+      showView('dashboard');
+    }
+    
   } catch (error) {
     console.error('❌ Error login:', error);
-    alert('Error de conexión: ' + error.message);
+    alert('Error: ' + error.message);
   }
 }
+
 
 // ============================================
 // FUNCIÓN showDashboard
@@ -323,35 +382,37 @@ function showDashboard() {
   try {
     console.log('🎯 Mostrando dashboard...');
     
-    // 🔴 OCULTAR LOGIN - Esto es lo que te falta
-    const loginSection = document.getElementById('loginSection') || 
-                        document.getElementById('loginScreen') ||
-                        document.querySelector('.login-section') ||
-                        document.querySelector('[data-section="login"]');
-     
-    if (loginSection) {
-      loginSection.style.display = 'none';
-      loginSection.classList.add('hidden');
+    // 🔴 OCULTAR LOGIN - Buscar por la clase correcta
+    const loginView = document.querySelector('.login-view');
+    if (loginView) {
+      loginView.style.display = 'none';
+      loginView.style.visibility = 'hidden';
+      loginView.classList.add('hidden');
+      console.log('✅ Login ocultado');
     }
     
     // 🟢 MOSTRAR DASHBOARD
-    const dashboardSection = document.getElementById('dashboardSection') ||
-                            document.getElementById('mainApp') ||
-                            document.getElementById('dashboard') ||
-                            document.querySelector('.dashboard-section') ||
-                            document.querySelector('[data-section="dashboard"]');
+    const mainApp = document.getElementById('mainApp') ||
+                   document.querySelector('.main-app') ||
+                   document.querySelector('.app-container') ||
+                   document.querySelector('[data-view="app"]');
     
-    if (dashboardSection) {
-      dashboardSection.style.display = 'block';
-      dashboardSection.classList.remove('hidden');
+    if (mainApp) {
+      mainApp.style.display = 'flex';
+      mainApp.style.visibility = 'visible';
+      mainApp.classList.remove('hidden');
+      console.log('✅ Dashboard visible');
     }
     
     // Mostrar nombre del usuario
     const user = JSON.parse(localStorage.getItem('mcm_user') || '{}');
-    const userNameElements = document.querySelectorAll('[data-user-name], .user-name, #userName');
-    userNameElements.forEach(el => {
-      el.textContent = user.nombre || user.email || 'Usuario';
-    });
+    const userNameElement = document.querySelector('[data-user-name]') ||
+                           document.querySelector('.user-name') ||
+                           document.getElementById('userName');
+    
+    if (userNameElement) {
+      userNameElement.textContent = user.nombre || user.email || 'Usuario';
+    }
     
     // Cargar datos
     loadDashboardData();
@@ -362,7 +423,6 @@ function showDashboard() {
     console.error('❌ Error mostrando dashboard:', error);
   }
 }
-
 
 // ============================================
 // FUNCIÓN loadDashboardData
@@ -1172,23 +1232,88 @@ function initializeCharts() {
  */
 async function loadLotes() {
   try {
-    const params = new URLSearchParams({
-      ...STATE.filtrosLotes,
-      pagina: STATE.currentPage,
-      paginaSize: STATE.itemsPerPage
-    }).toString();
+    console.log('📦 Cargando lotes...');
     
-    const result = await apiCall(`/lotes?${params}`);
-    
-    if (result.success) {
-      STATE.lotes = result.data;
-      renderLotesTable();
-      updatePagination(result.pagination);
+    try {
+      const data = await apiCall('/lotes?pagina=1&paginaSize=10');
+      if (data.success && data.data) {
+        renderLotesTable(data.data);
+        console.log('✅ Lotes del servidor cargados');
+        return;
+      }
+    } catch (error) {
+      console.warn('⚠️ Servidor no disponible, usando datos locales');
     }
+    
+    // FALLBACK A DATOS LOCALES
+    loadLocalLotes();
+    
   } catch (error) {
-    showToast('Error cargando lotes', 'error');
+    console.error('❌ Error en loadLotes:', error);
+    loadLocalLotes();
   }
 }
+
+function loadLocalLotes() {
+  try {
+    if (typeof appData !== 'undefined' && appData.lots) {
+      renderLotesTable(appData.lots);
+      console.log('✅ Lotes locales cargados');
+    }
+  } catch (error) {
+    console.error('Error cargando lotes locales:', error);
+  }
+}
+
+function loadLocalLotes() {
+  try {
+    if (typeof appData !== 'undefined' && appData.lots) {
+      renderLotesTable(appData.lots);
+      console.log('✅ Lotes locales cargados');
+    }
+  } catch (error) {
+    console.error('Error cargando lotes locales:', error);
+  }
+}
+
+function renderLotesTable(lotes) {
+  try {
+    if (!Array.isArray(lotes)) {
+      console.warn('⚠️ Lotes no es array:', lotes);
+      return;
+    }
+    
+    const tableBody = document.querySelector('#lotesTable tbody') ||
+                     document.querySelector('.lotes-table tbody');
+    
+    if (!tableBody) {
+      console.warn('⚠️ Tabla de lotes no encontrada');
+      return;
+    }
+    
+    tableBody.innerHTML = '';
+    
+    lotes.slice(0, 20).forEach(lote => {
+      const row = document.createElement('tr');
+      row.innerHTML = `
+        <td>${lote.codigo || lote.code || '-'}</td>
+        <td>${lote.producto || lote.product || '-'}</td>
+        <td>${lote.origen || lote.origin || '-'}</td>
+        <td>${lote.tueste || lote.roast || '-'}</td>
+        <td>${lote.pesoActual || lote.currentWeight || '-'}</td>
+        <td>${lote.fechaCaducidad || lote.expiration || '-'}</td>
+        <td><span class="status">${lote.estado || lote.status || 'activo'}</span></td>
+      `;
+      tableBody.appendChild(row);
+    });
+    
+    console.log(`✅ ${lotes.length} lotes renderizados en tabla`);
+    
+  } catch (error) {
+    console.error('❌ Error renderizando lotes:', error);
+  }
+}
+
 
 /**
  * Renderizar tabla de lotes

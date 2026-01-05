@@ -1833,6 +1833,27 @@ small {
   margin-top: var(--space-8);
   font-size: calc(var(--font-size-base) * 0.95);
 }
+/* ======================== OCULTAR LOGIN ======================== */
+.login-view.hidden,
+.login-view[aria-hidden="true"] {
+  display: none !important;
+  visibility: hidden !important;
+}
+
+/* ======================== MOSTRAR DASHBOARD ======================== */
+.main-app,
+#mainApp,
+.app-container {
+  display: flex !important;
+  visibility: visible !important;
+}
+
+.main-app.hidden,
+#mainApp.hidden {
+  display: none !important;
+  visibility: hidden !important;
+}
+
 
 /* ======================== MODALES ======================== */
 .modal {
