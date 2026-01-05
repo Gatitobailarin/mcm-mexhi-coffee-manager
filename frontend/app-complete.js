@@ -323,38 +323,46 @@ function showDashboard() {
   try {
     console.log('🎯 Mostrando dashboard...');
     
-    // Ocultar login
-    const loginScreen = document.getElementById('loginScreen');
-    const mainApp = document.getElementById('mainApp');
+    // 🔴 OCULTAR LOGIN - Esto es lo que te falta
+    const loginSection = document.getElementById('loginSection') || 
+                        document.getElementById('loginScreen') ||
+                        document.querySelector('.login-section') ||
+                        document.querySelector('[data-section="login"]');
     
-    if (loginScreen) {
-      loginScreen.classList.add('hidden');
-      loginScreen.style.display = 'none';
+    if (loginSection) {
+      loginSection.style.display = 'none';
+      loginSection.classList.add('hidden');
     }
     
-    if (mainApp) {
-      mainApp.classList.remove('hidden');
-      mainApp.style.display = 'flex';
-      mainApp.classList.add('active');
+    // 🟢 MOSTRAR DASHBOARD
+    const dashboardSection = document.getElementById('dashboardSection') ||
+                            document.getElementById('mainApp') ||
+                            document.getElementById('dashboard') ||
+                            document.querySelector('.dashboard-section') ||
+                            document.querySelector('[data-section="dashboard"]');
+    
+    if (dashboardSection) {
+      dashboardSection.style.display = 'block';
+      dashboardSection.classList.remove('hidden');
     }
     
     // Mostrar nombre del usuario
     const user = JSON.parse(localStorage.getItem('mcm_user') || '{}');
-    const userNameElement = document.getElementById('userName');
-    if (userNameElement) {
-      userNameElement.textContent = user.nombre || user.email || 'Usuario';
-    }
+    const userNameElements = document.querySelectorAll('[data-user-name], .user-name, #userName');
+    userNameElements.forEach(el => {
+      el.textContent = user.nombre || user.email || 'Usuario';
+    });
     
-    // Cargar datos del dashboard
+    // Cargar datos
     loadDashboardData();
     
     console.log('✅ Dashboard cargado correctamente');
     
   } catch (error) {
     console.error('❌ Error mostrando dashboard:', error);
-    alert('Error: ' + error.message);
   }
 }
+
 
 // ============================================
 // FUNCIÓN loadDashboardData
@@ -544,36 +552,157 @@ function updateRoleBasedUI() {
 /**
  * Cargar datos del dashboard
  */
-async function loadDashboard() {
+async function loadDashboardData() {
   try {
-    const [kpisRes, alertasRes, lotesRes] = await Promise.all([
-      // apiCall('/dashboard/kpis').catch(() => ({ success: false, data: {} })),
-      apiCall('/alertas/test/?limit=6&estado=Activo').catch(() => ({ success: false, data: [] })),
-      apiCall('/lotes/test/?limit=8&order=fechaTueste DESC').catch(() => ({ success: false, data: [] }))
-    ]);
+    console.log('📊 Cargando datos del dashboard...');
     
-    // Actualizar KPIs
-    if (kpisRes.success) {
-      updateKPIs(kpisRes.data);
+    const baseURL = 'http://localhost:4000';
+    const token = localStorage.getItem('mcm_token');
+    
+    if (!token) {
+      console.warn('⚠️ Sin token, usando datos locales');
+      loadLocalDashboardData();
+      return;
     }
     
-    // Renderizar alertas
-    if (alertasRes.success) {
-      renderDashboardAlerts(alertasRes.data);
+    // CARGAR KPIs
+    try {
+      const kpisRes = await fetch(baseURL + '/api/dashboard/kpis', {
+        method: 'GET',
+        headers: { 'Authorization': 'Bearer ' + token }
+      });
+      
+      if (kpisRes.ok) {
+        const kpis = await kpisRes.json();
+        console.log('KPIs response:', kpis);
+        
+        // Verificar que existe success
+        if (kpis && kpis.success && kpis.data) {
+          console.log('✅ KPIs cargados');
+          updateKPIs(kpis.data);
+        } else if (kpis && kpis.data) {
+          console.log('✅ KPIs cargados (sin success)');
+          updateKPIs(kpis.data);
+        } else {
+          console.warn('⚠️ Respuesta KPIs inválida');
+          loadLocalDashboardData();
+        }
+      } else {
+        console.warn('⚠️ Error HTTP KPIs:', kpisRes.status);
+        loadLocalDashboardData();
+      }
+    } catch (error) {
+      console.warn('⚠️ Error obteniendo KPIs:', error.message);
+      loadLocalDashboardData();
     }
     
-    // Renderizar lotes recientes
-    if (lotesRes.success) {
-      renderRecentLots(lotesRes.data);
+    // CARGAR LOTES
+    try {
+      const lotesRes = await fetch(baseURL + '/api/lotes', {
+        method: 'GET',
+        headers: { 'Authorization': 'Bearer ' + token }
+      });
+      
+      if (lotesRes.ok) {
+        const lotes = await lotesRes.json();
+        
+        // Manejo flexible de respuesta
+        const lotsData = (lotes && lotes.data) || (lotes && lotes.lots) || [];
+        
+        if (Array.isArray(lotsData)) {
+          console.log('✅ Lotes cargados:', lotsData.length);
+          renderLotesTable(lotsData);
+        } else {
+          console.warn('⚠️ Lotes no es array');
+          loadLocalDashboardData();
+        }
+      }
+    } catch (error) {
+      console.warn('⚠️ Error obteniendo lotes:', error.message);
+      loadLocalDashboardData();
     }
     
-    // Inicializar gráficas
-    setTimeout(initializeCharts, 300);
   } catch (error) {
-    console.error('Dashboard error:', error);
-    showToast('Error cargando dashboard', 'error');
+    console.error('❌ Error cargando datos dashboard:', error);
+    loadLocalDashboardData();
   }
 }
+
+// Función auxiliar - ASEGÚRATE DE QUE EXISTE
+function loadLocalDashboardData() {
+  console.log('📦 Cargando datos locales...');
+  
+  try {
+    if (typeof appData !== 'undefined' && appData) {
+      if (appData.kpis) updateKPIs(appData.kpis);
+      if (appData.lots) renderLotesTable(appData.lots);
+      console.log('✅ Datos locales cargados');
+    }
+  } catch (error) {
+    console.error('Error cargando datos locales:', error);
+  }
+}
+
+// Función para actualizar KPIs - ASEGÚRATE DE QUE EXISTE
+function updateKPIs(data) {
+  try {
+    if (!data) return;
+    
+    // Buscar elementos KPI por varios selectores posibles
+    const kpiMap = {
+      'lotesActivos': ['activeLots', 'kpi-lotes', 'lotes-activos'],
+      'proximosCaducar': ['expiringLots', 'kpi-caducidad', 'lotes-caducidad'],
+      'stockBajo': ['lowStockProducts', 'kpi-stock', 'productos-bajo'],
+      'alertasPendientes': ['activeAlerts', 'kpi-alertas', 'alertas-pendientes']
+    };
+    
+    for (let [key, selectors] of Object.entries(kpiMap)) {
+      const value = data[key] || data[selectors[0]] || 0;
+      
+      selectors.forEach(selector => {
+        const el = document.getElementById(selector);
+        if (el) el.textContent = value;
+      });
+    }
+    
+  } catch (error) {
+    console.warn('⚠️ Error actualizando KPIs:', error);
+  }
+}
+
+// Función para renderizar tabla de lotes - ASEGÚRATE DE QUE EXISTE
+function renderLotesTable(lotes) {
+  try {
+    if (!Array.isArray(lotes)) return;
+    
+    const tableBody = document.querySelector('#lotesTable tbody') ||
+                     document.querySelector('.lotes-table tbody');
+    
+    if (!tableBody) {
+      console.warn('⚠️ Tabla de lotes no encontrada');
+      return;
+    }
+    
+    tableBody.innerHTML = '';
+    
+    lotes.slice(0, 10).forEach(lote => {
+      const row = document.createElement('tr');
+      row.innerHTML = `
+        <td>${lote.code || lote.codigo || '-'}</td>
+        <td>${lote.product || lote.producto || '-'}</td>
+        <td>${lote.origin || lote.origen || '-'}</td>
+        <td><span class="status">${lote.status || lote.estado || 'Activo'}</span></td>
+      `;
+      tableBody.appendChild(row);
+    });
+    
+    console.log('✅ Tabla de lotes actualizada');
+    
+  } catch (error) {
+    console.error('❌ Error renderizando lotes:', error);
+  }
+}
+
 
 /**
  * Actualizar KPIs
