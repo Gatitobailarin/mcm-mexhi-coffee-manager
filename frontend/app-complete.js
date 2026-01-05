@@ -328,7 +328,7 @@ function showDashboard() {
                         document.getElementById('loginScreen') ||
                         document.querySelector('.login-section') ||
                         document.querySelector('[data-section="login"]');
-    
+     
     if (loginSection) {
       loginSection.style.display = 'none';
       loginSection.classList.add('hidden');
@@ -516,6 +516,324 @@ function loadViewData(viewName) {
     case 'manual':
       loadManual();
       break;
+  }
+}
+
+function loadDashboard() {
+  try {
+    console.log('📊 Cargando dashboard...');
+    
+    // Ya tenemos los datos, solo los mostramos
+    const dashboard = document.getElementById('dashboardView') ||
+                     document.getElementById('dashboard') ||
+                     document.querySelector('[data-view="dashboard"]');
+    
+    if (dashboard) {
+      dashboard.style.display = 'block';
+    }
+    
+    // Cargar datos del servidor
+    loadDashboardData();
+    
+    console.log('✅ Dashboard cargado');
+    
+  } catch (error) {
+    console.error('❌ Error en loadDashboard:', error);
+  }
+}
+
+// ============================================
+// FUNCIÓN loadLotes (PROBABLEMENTE TAMBIÉN LA NECESITAS)
+// ============================================
+function loadLotes() {
+  try {
+    console.log('📦 Cargando lotes...');
+    
+    const baseURL = 'http://localhost:4000';
+    const token = localStorage.getItem('mcm_token');
+    
+    fetch(baseURL + '/api/lotes', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        renderLotesTable(data.data);
+        console.log('✅ Lotes cargados');
+      } else {
+        loadLocalLotes();
+      }
+    })
+    .catch(err => {
+      console.warn('Error obteniendo lotes:', err);
+      loadLocalLotes();
+    });
+    
+  } catch (error) {
+    console.error('❌ Error en loadLotes:', error);
+  }
+}
+
+function loadLocalLotes() {
+  try {
+    if (typeof appData !== 'undefined' && appData.lots) {
+      renderLotesTable(appData.lots);
+    }
+  } catch (error) {
+    console.error('Error cargando lotes locales:', error);
+  }
+}
+
+// ============================================
+// FUNCIÓN loadProductos (PROBABLEMENTE TAMBIÉN LA NECESITAS)
+// ============================================
+function loadProductos() {
+  try {
+    console.log('📦 Cargando productos...');
+    
+    const baseURL = 'http://localhost:4000';
+    const token = localStorage.getItem('mcm_token');
+    
+    fetch(baseURL + '/api/productos', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        renderProductosTable(data.data);
+        console.log('✅ Productos cargados');
+      } else {
+        loadLocalProductos();
+      }
+    })
+    .catch(err => {
+      console.warn('Error obteniendo productos:', err);
+      loadLocalProductos();
+    });
+    
+  } catch (error) {
+    console.error('❌ Error en loadProductos:', error);
+  }
+}
+
+function loadLocalProductos() {
+  try {
+    if (typeof appData !== 'undefined' && appData.products) {
+      renderProductosTable(appData.products);
+    }
+  } catch (error) {
+    console.error('Error cargando productos locales:', error);
+  }
+}
+
+// ============================================
+// FUNCIÓN loadAlertas (PROBABLEMENTE TAMBIÉN LA NECESITAS)
+// ============================================
+function loadAlertas() {
+  try {
+    console.log('🚨 Cargando alertas...');
+    
+    const baseURL = 'http://localhost:4000';
+    const token = localStorage.getItem('mcm_token');
+    
+    fetch(baseURL + '/api/alertas', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        renderAlertasTable(data.data);
+        console.log('✅ Alertas cargadas');
+      } else {
+        loadLocalAlertas();
+      }
+    })
+    .catch(err => {
+      console.warn('Error obteniendo alertas:', err);
+      loadLocalAlertas();
+    });
+    
+  } catch (error) {
+    console.error('❌ Error en loadAlertas:', error);
+  }
+}
+
+function loadLocalAlertas() {
+  try {
+    if (typeof appData !== 'undefined' && appData.alerts) {
+      renderAlertasTable(appData.alerts);
+    }
+  } catch (error) {
+    console.error('Error cargando alertas locales:', error);
+  }
+}
+
+// ============================================
+// FUNCIÓN renderAlertasTable (SI NO EXISTE)
+// ============================================
+function renderAlertasTable(alertas) {
+  try {
+    if (!Array.isArray(alertas)) return;
+    
+    const tableBody = document.querySelector('#alertasTable tbody') ||
+                     document.querySelector('.alertas-table tbody');
+    
+    if (!tableBody) {
+      console.warn('⚠️ Tabla de alertas no encontrada');
+      return;
+    }
+    
+    tableBody.innerHTML = '';
+    
+    alertas.slice(0, 10).forEach(alerta => {
+      const row = document.createElement('tr');
+      row.innerHTML = `
+        <td><span class="priority priority-${(alerta.priority || alerta.prioridad || 'low').toLowerCase()}">${alerta.priority || alerta.prioridad || 'N/A'}</span></td>
+        <td>${alerta.title || alerta.titulo || '-'}</td>
+        <td>${alerta.message || alerta.mensaje || '-'}</td>
+        <td>${alerta.date || alerta.fecha || '-'}</td>
+      `;
+      tableBody.appendChild(row);
+    });
+    
+    console.log('✅ Tabla de alertas actualizada');
+    
+  } catch (error) {
+    console.error('❌ Error renderizando alertas:', error);
+  }
+}
+
+// ============================================
+// FUNCIÓN loadReportes (SI LA NECESITAS)
+// ============================================
+function loadReportes() {
+  try {
+    console.log('📊 Cargando reportes...');
+    
+    const baseURL = 'http://localhost:4000';
+    const token = localStorage.getItem('mcm_token');
+    
+    fetch(baseURL + '/api/reportes', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        renderReportesTable(data.data);
+        console.log('✅ Reportes cargados');
+      } else {
+        loadLocalReportes();
+      }
+    })
+    .catch(err => {
+      console.warn('Error obteniendo reportes:', err);
+      loadLocalReportes();
+    });
+    
+  } catch (error) {
+    console.error('❌ Error en loadReportes:', error);
+  }
+}
+
+function loadLocalReportes() {
+  try {
+    if (typeof appData !== 'undefined' && appData.reports) {
+      renderReportesTable(appData.reports);
+    }
+  } catch (error) {
+    console.error('Error cargando reportes locales:', error);
+  }
+}
+
+function renderReportesTable(reportes) {
+  try {
+    if (!Array.isArray(reportes)) return;
+    
+    const tableBody = document.querySelector('#reportesTable tbody');
+    if (!tableBody) return;
+    
+    tableBody.innerHTML = '';
+    
+    reportes.slice(0, 10).forEach(reporte => {
+      const row = document.createElement('tr');
+      row.innerHTML = `
+        <td>${reporte.name || reporte.nombre || '-'}</td>
+        <td>${reporte.type || reporte.tipo || '-'}</td>
+        <td>${reporte.frequency || reporte.frecuencia || '-'}</td>
+        <td>${reporte.format || reporte.formato || '-'}</td>
+      `;
+      tableBody.appendChild(row);
+    });
+    
+  } catch (error) {
+    console.error('Error renderizando reportes:', error);
+  }
+}
+
+// ============================================
+// FUNCIÓN loadUsuarios (SI LA NECESITAS)
+// ============================================
+function loadUsuarios() {
+  try {
+    console.log('👥 Cargando usuarios...');
+    
+    const baseURL = 'http://localhost:4000';
+    const token = localStorage.getItem('mcm_token');
+    
+    fetch(baseURL + '/api/usuarios', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        renderUsuariosTable(data.data);
+        console.log('✅ Usuarios cargados');
+      } else {
+        loadLocalUsuarios();
+      }
+    })
+    .catch(err => {
+      console.warn('Error obteniendo usuarios:', err);
+      loadLocalUsuarios();
+    });
+    
+  } catch (error) {
+    console.error('❌ Error en loadUsuarios:', error);
+  }
+}
+
+function loadLocalUsuarios() {
+  try {
+    if (typeof appData !== 'undefined' && appData.users) {
+      renderUsuariosTable(appData.users);
+    }
+  } catch (error) {
+    console.error('Error cargando usuarios locales:', error);
+  }
+}
+
+function renderUsuariosTable(usuarios) {
+  try {
+    if (!Array.isArray(usuarios)) return;
+    
+    const tableBody = document.querySelector('#usuariosTable tbody');
+    if (!tableBody) return;
+    
+    tableBody.innerHTML = '';
+    
+    usuarios.slice(0, 10).forEach(usuario => {
+      const row = document.createElement('tr');
+      row.innerHTML = `
+        <td>${usuario.name || usuario.nombre || '-'}</td>
+        <td>${usuario.email || '-'}</td>
+        <td>${usuario.role || usuario.rol || '-'}</td>
+        <td><span class="status">${usuario.status || usuario.estado || 'activo'}</span></td>
+      `;
+      tableBody.appendChild(row);
+    });
+    
+  } catch (error) {
+    console.error('Error renderizando usuarios:', error);
   }
 }
 
