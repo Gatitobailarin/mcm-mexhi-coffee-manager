@@ -1,82 +1,95 @@
-
 <html lang="es">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="Mexhi Coffee Manager - Sistema de Gestión de Inventarios de Café">
     <title>Mexhi Coffee Manager v2.0</title>
-    
+
     <!-- Font Awesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
+
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    
+
     <!-- Chart.js para gráficas -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
-    
+
     <!-- CSS Personalizado -->
     <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
     <!-- ======================== CONTAINER PRINCIPAL ======================== -->
     <div id="appContainer" class="app-container">
-        
+
         <!-- ======================== LOGIN VIEW ======================== -->
         <div id="login" class="view active login-view">
-            <div class="login-container">
-                <div class="login-card">
+            <div class="login-split-container">
+                <!-- Left Side: Login Form -->
+                <div class="login-left-panel">
                     <div class="login-header">
                         <div class="login-logo">
                             <i class="fas fa-coffee"></i>
                         </div>
                         <h1>Mexhi Coffee Manager</h1>
-                        <p class="login-subtitle">v2.0 - Sistema de Gestión de Inventarios</p>
+                        <p class="login-subtitle">Sistema de Gestión de Inventario</p>
                     </div>
-                    
+
                     <form id="loginForm" class="login-form">
                         <div class="form-group">
-                            <label for="loginEmail">Email</label>
+                            <label for="loginEmail">Usuario o Email</label>
                             <div class="input-wrapper">
-                                <i class="fas fa-envelope"></i>
-                                <input 
-                                    type="email" 
-                                    id="loginEmail" 
-                                    placeholder="admin@mexhi.com"
-                                    required
-                                >
+                                <input type="email" id="loginEmail" placeholder="Ingrese su usuario" required>
                             </div>
                         </div>
-                        
+
                         <div class="form-group">
                             <label for="loginPassword">Contraseña</label>
                             <div class="input-wrapper">
-                                <i class="fas fa-lock"></i>
-                                <input 
-                                    type="password" 
-                                    id="loginPassword" 
-                                    placeholder="Ingresa tu contraseña"
-                                    required
-                                >
+                                <input type="password" id="loginPassword" placeholder="Ingrese su contraseña" required>
                             </div>
                         </div>
-                        
-                        <button type="submit" class="btn btn-login">
+
+                        <button type="submit" class="btn btn--primary btn--full-width login-btn">
                             <i class="fas fa-sign-in-alt"></i> Iniciar Sesión
                         </button>
                     </form>
-                    
+
                     <div class="login-footer">
-                        <p>Credenciales de prueba:</p>
-                        <code>admin@mexhi.com / password</code>
+                        <a href="#" class="forgot-password">¿Olvidó su contraseña?</a>
                     </div>
+                </div>
+
+                <!-- Right Side: Brand/Info -->
+                <div class="login-right-panel">
+                    <h2>Gestión Integral de Café</h2>
+
+                    <ul class="feature-list">
+                        <li>
+                            <i class="fas fa-boxes"></i>
+                            <span>Control de lotes e inventario</span>
+                        </li>
+                        <li>
+                            <i class="fas fa-tag"></i>
+                            <span>Generación de etiquetas</span>
+                        </li>
+                        <li>
+                            <i class="fas fa-chart-bar"></i>
+                            <span>Reportes y análisis</span>
+                        </li>
+                        <li>
+                            <i class="fas fa-bell"></i>
+                            <span>Alertas inteligentes</span>
+                        </li>
+                    </ul>
                 </div>
             </div>
         </div>
-        
+
         <!-- ======================== MAIN APP LAYOUT ======================== -->
         <div id="mainApp" class="main-layout hidden">
-            
+
             <!-- ======================== SIDEBAR ======================== -->
             <aside id="sidebar" class="sidebar">
                 <div class="sidebar-header">
@@ -88,7 +101,7 @@
                         <i class="fas fa-bars"></i>
                     </button>
                 </div>
-                
+
                 <nav class="sidebar-nav">
                     <a href="#" data-view="dashboard" class="nav-link active">
                         <i class="fas fa-chart-line"></i>
@@ -127,7 +140,7 @@
                         <span>Manual</span>
                     </a>
                 </nav>
-                
+
                 <div class="sidebar-footer">
                     <div class="user-info">
                         <div class="user-avatar">
@@ -143,12 +156,12 @@
                     </button>
                 </div>
             </aside>
-            
+
             <!-- ======================== MAIN CONTENT ======================== -->
             <main class="main-content">
-                
+
                 <!-- ======================== HEADER ======================== -->
-                <header class="app-header">
+                <!-- <header class="app-header">
                     <div class="breadcrumb">
                         <span id="breadcrumbText">Dashboard</span>
                     </div>
@@ -165,18 +178,18 @@
                             <i class="fas fa-cog"></i>
                         </button>
                     </div>
-                </header>
-                
+                </header> -->
+
                 <!-- ======================== VIEWS CONTAINER ======================== -->
                 <div class="views-container">
-                    
+
                     <!-- ======================== DASHBOARD ======================== -->
                     <section id="dashboard" class="view active">
                         <div class="dashboard-header">
                             <h1>Dashboard</h1>
                             <p>Bienvenido al sistema de gestión de café</p>
                         </div>
-                        
+
                         <!-- KPIs -->
                         <div class="kpi-grid">
                             <div class="kpi-card">
@@ -216,7 +229,7 @@
                                 </div>
                             </div>
                         </div>
-                        
+
                         <!-- Gráficas -->
                         <div class="charts-grid">
                             <div class="chart-card">
@@ -225,16 +238,17 @@
                             </div>
                             <div class="chart-card">
                                 <h3>Alertas por Tipo</h3>
-                                <canvas id="alertsChart"></canvas>
+                                <canvas style="max-width: 30vw !important;max-height: 40vh !important;"
+                                    id="alertsChart"></canvas>
                             </div>
                         </div>
-                        
+
                         <!-- Alertas Recientes -->
                         <div class="section">
                             <h3>Alertas Recientes</h3>
                             <div id="dashboardAlerts" class="alerts-list"></div>
                         </div>
-                        
+
                         <!-- Lotes Recientes -->
                         <div class="section">
                             <h3>Lotes Recientes</h3>
@@ -253,7 +267,7 @@
                             </table>
                         </div>
                     </section>
-                    
+
                     <!-- ======================== LOTES ======================== -->
                     <section id="lotes" class="view">
                         <div class="section-header">
@@ -262,7 +276,7 @@
                                 <i class="fas fa-plus"></i> Nuevo Lote
                             </button>
                         </div>
-                        
+
                         <!-- Filtros -->
                         <div class="filters-section">
                             <input type="text" id="filterOrigen" class="filter-input" placeholder="Origen...">
@@ -281,7 +295,7 @@
                                 <i class="fas fa-times"></i> Limpiar
                             </button>
                         </div>
-                        
+
                         <!-- Tabla de Lotes -->
                         <table id="lotesTable" class="data-table">
                             <thead>
@@ -299,75 +313,118 @@
                             </thead>
                             <tbody id="lotesTableBody"></tbody>
                         </table>
-                        
+
                         <!-- Paginación -->
                         <div id="paginationContainer" class="pagination"></div>
                     </section>
-                    
+
                     <!-- ======================== PRODUCTOS ======================== -->
                     <section id="productos" class="view">
                         <div class="section-header">
                             <h1>Catálogo de Productos</h1>
-                            <button id="newProductoBtn" class="btn btn-primary">
+                            <button id="newProductoBtn" class="btn btn-primary" onclick="openNewProductoModal()">
                                 <i class="fas fa-plus"></i> Nuevo Producto
                             </button>
                         </div>
-                        
-                        <!-- Tabla de Productos -->
-                        <table id="productosTable" class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>Nombre</th>
-                                    <th>Origen</th>
-                                    <th>Tipo Grano</th>
-                                    <th>Stock</th>
-                                    <th>Estado</th>
-                                    <th>Precio</th>
-                                    <th>Acciones</th>
-                                </tr>
-                            </thead>
-                            <tbody id="productosTableBody"></tbody>
-                        </table>
-                    </section>
-                    
-                    <!-- ======================== ALERTAS ======================== -->
-                    <section id="alertas" class="view">
-                        <div class="section-header">
-                            <h1>Centro de Alertas</h1>
+
+                        <!-- Filtros Productos -->
+                        <div class="filters-section">
+                            <input type="text" id="filterProductoNombre" class="filter-input"
+                                placeholder="Buscar producto...">
+                            <select id="filterProductoEstado" class="filter-input">
+                                <option value="">Todos los estados</option>
+                                <option value="DISPONIBLE">Disponible</option>
+                                <option value="STOCK BAJO">Stock Bajo</option>
+                                <option value="AGOTADO">Agotado</option>
+                            </select>
+                            <button id="applyProductosFilter" class="btn btn-secondary">
+                                <i class="fas fa-filter"></i> Filtrar
+                            </button>
+                            <button id="clearProductosFilter" class="btn btn-outline">
+                                <i class="fas fa-times"></i> Limpiar
+                            </button>
                         </div>
-                        
-                        <!-- Tabla de Alertas -->
-                        <table id="alertasTable" class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>Tipo</th>
-                                    <th>Mensaje</th>
-                                    <th>Prioridad</th>
-                                    <th>Estado</th>
-                                    <th>Fecha</th>
-                                    <th>Acciones</th>
-                                </tr>
-                            </thead>
-                            <tbody id="alertasTableBody"></tbody>
-                        </table>
+
+                        <div id="productosGrid" class="products-grid">
+                            <!-- JS renderProductosGrid() -->
+                        </div>
                     </section>
-                    
+
+
+
                     <!-- ======================== ETIQUETAS ======================== -->
                     <section id="etiquetas" class="view">
                         <div class="section-header">
-                            <h1>Generación de Etiquetas</h1>
+                            <h1>Configuración de Etiquetas</h1>
                         </div>
-                        
-                        <div id="plantillasContainer" class="plantillas-grid"></div>
-                        <div id="labelGenerationForm" class="form-section hidden"></div>
+
+                        <div class="labels-container">
+                            <!-- Top Row: Templates & Config -->
+                            <div class="labels-top-row">
+                                <!-- Template Selection -->
+                                <div class="label-selection-panel">
+                                    <h3>Seleccionar Plantilla</h3>
+                                    <div id="plantillasGrid" class="plantillas-grid">
+                                        <!-- JS Generated -->
+                                    </div>
+                                </div>
+
+                                <!-- Configuration Form -->
+                                <div class="label-config-panel">
+                                    <h3>Configuración</h3>
+                                    <form id="labelForm">
+                                        <div class="form-group">
+                                            <label>Producto</label>
+                                            <select id="labelProductSelect" class="form-control" required>
+                                                <option value="">Seleccionar producto</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Lote</label>
+                                            <select id="labelLotSelect" class="form-control" required>
+                                                <option value="">Seleccionar lote</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Cantidad de Etiquetas</label>
+                                            <input type="number" id="labelQuantity" class="form-control" value="10"
+                                                min="1">
+                                        </div>
+                                        <button type="button" id="btnGenerateLabels"
+                                            class="btn btn--primary btn--full-width label-gen-btn">
+                                            <i class="fas fa-print"></i> Generar Etiquetas
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+
+                            <!-- Middle: Preview -->
+                            <div class="label-preview-panel">
+                                <h3>Vista Previa</h3>
+                                <div class="preview-canvas">
+                                    <div id="labelPreview" class="label-preview-box">
+                                        <p class="placeholder-text">Seleccione una plantilla y producto para
+                                            previsualizar</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Bottom: Queue -->
+                            <div class="label-queue-panel">
+                                <h3>Cola de Impresión</h3>
+                                <div id="labelQueue" class="label-queue-list">
+                                    <!-- JS Generated -->
+                                </div>
+                            </div>
+                        </div>
                     </section>
-                    
+
                     <!-- ======================== REPORTES ======================== -->
                     <section id="reportes" class="view">
                         <div class="section-header">
                             <h1>Centro de Reportes</h1>
                         </div>
-                        
+
                         <!-- Generador de Reportes -->
                         <div class="form-section">
                             <h3>Generar Nuevo Reporte</h3>
@@ -405,7 +462,7 @@
                                 </button>
                             </form>
                         </div>
-                        
+
                         <!-- Tabla de Reportes -->
                         <div class="form-section">
                             <h3>Reportes Disponibles</h3>
@@ -424,7 +481,47 @@
                             </table>
                         </div>
                     </section>
-                    
+
+                    <!-- ======================== ALERTAS ======================== -->
+                    <section id="alertas" class="view">
+                        <div class="section-header">
+                            <h1>Centro de Alertas</h1>
+                            <button class="btn btn-outline" style="border-radius: 20px;">
+                                <i class="fas fa-cog"></i> Configurar Alertas
+                            </button>
+                        </div>
+
+                        <!-- Filters -->
+                        <div class="alert-filters">
+                            <select id="filterAlertTipo">
+                                <option value="">Todos los tipos</option>
+                                <option value="STOCK">Stock</option>
+                                <option value="CADUCIDAD">Caducidad</option>
+                                <option value="SISTEMA">Sistema</option>
+                            </select>
+                            <select id="filterAlertPrioridad">
+                                <option value="">Todas las prioridades</option>
+                                <option value="ALTA">Alta</option>
+                                <option value="MEDIA">Media</option>
+                                <option value="BAJA">Baja</option>
+                            </select>
+                            <select id="filterAlertEstado">
+                                <option value="">Todos los estados</option>
+                                <option value="Pendiente">Pendientes</option>
+                                <option value="Resuelto">Resueltos</option>
+                                <option value="Descartado">Descartados</option>
+                            </select>
+                        </div>
+
+                        <!-- Alerts Container -->
+                        <div id="alertasGrid" class="alerts-grid">
+                            <div style="text-align: center; color: #999; padding: 40px;">
+                                <i class="fas fa-spinner fa-spin fa-2x"></i>
+                                <p style="margin-top: 10px;">Cargando alertas...</p>
+                            </div>
+                        </div>
+                    </section>
+
                     <!-- ======================== USUARIOS ======================== -->
                     <section id="usuarios" class="view" data-role="usuarios">
                         <div class="section-header">
@@ -433,7 +530,7 @@
                                 <i class="fas fa-plus"></i> Nuevo Usuario
                             </button>
                         </div>
-                        
+
                         <!-- Tabla de Usuarios -->
                         <table id="usuariosTable" class="data-table">
                             <thead>
@@ -450,13 +547,13 @@
                             <tbody id="usuariosTableBody"></tbody>
                         </table>
                     </section>
-                    
+
                     <!-- ======================== LOGS ======================== -->
                     <section id="logs" class="view" data-role="logs">
                         <div class="section-header">
                             <h1>Log de Sesiones</h1>
                         </div>
-                        
+
                         <!-- Tabla de Logs -->
                         <table id="logsTable" class="data-table">
                             <thead>
@@ -473,13 +570,13 @@
                             <tbody id="sessionLogsBody"></tbody>
                         </table>
                     </section>
-                    
+
                     <!-- ======================== MANUAL ======================== -->
                     <section id="manual" class="view">
                         <div class="section-header">
                             <h1>Manual de Usuario</h1>
                         </div>
-                        
+
                         <div class="manual-container">
                             <div class="manual-nav">
                                 <button onclick="loadManualSection('inicio')" class="manual-btn">
@@ -508,9 +605,9 @@
             </main>
         </div>
     </div>
-    
+
     <!-- ======================== MODALES ======================== -->
-    
+
     <!-- Modal Lote -->
     <div id="loteModal" class="modal">
         <div class="modal-content">
@@ -527,8 +624,10 @@
                         <input type="text" id="codigo" required>
                     </div>
                     <div class="form-group">
-                        <label for="producto">Producto</label>
-                        <input type="text" id="producto" required>
+                        <label for="productoId">Producto</label>
+                        <select id="productoId" required>
+                            <option value="">Selecciona un producto</option>
+                        </select>
                     </div>
                 </div>
                 <div class="form-row">
@@ -548,11 +647,7 @@
                 </div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label for="pesoInicial">Peso Inicial (kg)</label>
-                        <input type="number" id="pesoInicial" step="0.01" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="pesoActual">Peso Actual (kg)</label>
+                        <label for="pesoActual">Peso (g)</label>
                         <input type="number" id="pesoActual" step="0.01" required>
                     </div>
                 </div>
@@ -587,7 +682,70 @@
             </form>
         </div>
     </div>
-    
+
+    <!-- Modal Detalle Lote -->
+    <div id="loteDetailModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Detalles del Lote</h2>
+                <button onclick="closeModal('loteDetailModal')" class="btn-close">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="detail-body">
+                <table class="detail-table">
+                    <tr>
+                        <th>Código:</th>
+                        <td id="detailCodigo"></td>
+                    </tr>
+                    <tr>
+                        <th>Producto:</th>
+                        <td id="detailProducto"></td>
+                    </tr>
+                    <tr>
+                        <th>Origen:</th>
+                        <td id="detailOrigen"></td>
+                    </tr>
+                    <tr>
+                        <th>Tueste:</th>
+                        <td id="detailTueste"></td>
+                    </tr>
+                    <tr>
+                        <th>Peso Actual:</th>
+                        <td id="detailPeso"></td>
+                    </tr>
+                    <tr>
+                        <th>Estado:</th>
+                        <td id="detailEstado"></td>
+                    </tr>
+                    <tr>
+                        <th>Fecha Tueste:</th>
+                        <td id="detailFechaTueste"></td>
+                    </tr>
+                    <tr>
+                        <th>Caducidad:</th>
+                        <td id="detailCaducidad"></td>
+                    </tr>
+                    <tr>
+                        <th>Creado Por:</th>
+                        <td id="detailCreador"></td>
+                    </tr>
+                    <tr>
+                        <th>Fecha Creación:</th>
+                        <td id="detailFechaCreacion"></td>
+                    </tr>
+                    <tr>
+                        <th>Notas:</th>
+                        <td id="detailNotas"></td>
+                    </tr>
+                </table>
+            </div>
+            <div class="modal-footer">
+                <button onclick="closeModal('loteDetailModal')" class="btn btn-outline">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal Producto -->
     <div id="productoModal" class="modal">
         <div class="modal-content">
@@ -610,16 +768,22 @@
                 </div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label for="tipoGranoProducto">Tipo de Grano</label>
-                        <select id="tipoGranoProducto">
+                        <label for="granoProducto">Grano</label>
+                        <select id="granoProducto">
                             <option value="Arábica">Arábica</option>
                             <option value="Robusta">Robusta</option>
                             <option value="Mezcla">Mezcla</option>
                         </select>
                     </div>
+                </div>
+                <div class="form-row">
                     <div class="form-group">
                         <label for="precioProducto">Precio Unitario</label>
                         <input type="number" id="precioProducto" step="0.01">
+                    </div>
+                    <div class="form-group">
+                        <label for="presentacionProducto">Presentación</label>
+                        <input type="text" id="presentacionProducto" placeholder="ej. Bolsa 1kg, Caja 5kg">
                     </div>
                 </div>
                 <div class="form-row">
@@ -643,7 +807,7 @@
             </form>
         </div>
     </div>
-    
+
     <!-- Modal Usuario -->
     <div id="usuarioModal" class="modal">
         <div class="modal-content">
@@ -690,18 +854,50 @@
             </form>
         </div>
     </div>
-    
+
     <!-- ======================== LOADER GLOBAL ======================== -->
     <div id="globalLoader" class="global-loader hidden">
         <div class="spinner">
             <div class="spinner-ring"></div>
         </div>
     </div>
-    
+
     <!-- ======================== TOAST CONTAINER ======================== -->
     <div id="toastContainer" class="toast-container"></div>
-    
+
+    <!-- Global Feedback Modal (success/error) -->
+    <div id="feedbackModal" class="modal">
+        <div class="modal-content" style="max-width: 400px; text-align: center;">
+            <div class="modal-body">
+                <div id="feedbackIcon" style="font-size: 3rem; margin-bottom: 15px;"></div>
+                <h3 id="feedbackTitle" style="margin-bottom: 10px;"></h3>
+                <p id="feedbackMessage" style="color: #666; margin-bottom: 20px;"></p>
+                <button onclick="closeModal('feedbackModal')" class="btn btn-primary btn-full-width">Entendido</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Global Confirmation Modal -->
+    <div id="confirmationModal" class="modal">
+        <div class="modal-content" style="max-width: 400px;">
+            <div class="modal-header">
+                <h3>Confirmación</h3>
+            </div>
+            <div class="modal-body">
+                <p id="confirmationMessage">¿Estás seguro de realizar esta acción?</p>
+            </div>
+            <div class="modal-footer">
+                <button id="btnConfirmCancel" onclick="closeModal('confirmationModal')"
+                    class="btn btn-outline">Cancelar</button>
+                <button id="btnConfirmOk" class="btn btn-primary">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
     <script src="app-complete.js"></script>
 </body>
+
 </html>

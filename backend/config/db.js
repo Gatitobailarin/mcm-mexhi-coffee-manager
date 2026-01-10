@@ -1,21 +1,16 @@
 const sql = require('mssql');
+require('dotenv').config(); // Ensure env vars are loaded
 
 const config = {
-  server: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT) || 1433,
-  database: process.env.DB_NAME || 'MexhiCoffeeManager',
-  user: process.env.DB_USER || 'sa',
-  password: process.env.DB_PASS || 'skaSUPER3',
+  user: process.env.DB_USER,
+  password: process.env.DB_PASS,
+  server: process.env.DB_HOST,
+  port: parseInt(process.env.DB_PORT),
+  database: process.env.DB_NAME,
   options: {
-    encrypt: false,
+    encrypt: false, // For local development, often false is needed if certificate isn't set up
     trustServerCertificate: true,
-    requestTimeout: 30000,
-    connectionTimeout: 30000,
-    pool: {
-      max: 10,
-      min: 0,
-      idleTimeoutMillis: 30000
-    }
+    enableArithAbort: true
   }
 };
 
@@ -26,8 +21,11 @@ const poolPromise = new sql.ConnectionPool(config)
     return pool;
   })
   .catch(err => {
-    console.error('❌ Error de conexión BD:', err);
+    console.error('❌ Error conectando a SQL Server:', err);
     process.exit(1);
   });
 
-module.exports = poolPromise;
+module.exports = {
+  sql,
+  poolPromise
+};

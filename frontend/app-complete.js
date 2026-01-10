@@ -19,8 +19,8 @@ const CONFIG = {
 
 // ======================== ESTADO GLOBAL ========================
 const STATE = {
-  authToken: localStorage.getItem('mcm_auth_token') || null,
-  currentUser: null,
+  authToken: localStorage.getItem('mcm_token') || null,
+  currentUser: JSON.parse(localStorage.getItem('mcm_user')) || null,
   currentRole: 'admin',
   currentView: 'dashboard',
   isLoading: false,
@@ -29,33 +29,51 @@ const STATE = {
   editingUserId: null,
   currentPage: 1,
   itemsPerPage: 10,
-  
+
   // Datos en memoria
   lotes: [],
   productos: [],
   usuarios: [],
   alertas: [],
   reportes: [],
-  plantillaEtiquetas: [],
-  
+  plantillaEtiquetas: [
+    { "id": 1, "name": "Etiqueta Estándar", "size": "5x7cm", "fields": ["nombre", "origen", "tueste", "fechaCaducidad", "codigoQR"], "description": "Plantilla básica para uso general" },
+    { "id": 2, "name": "Etiqueta Premium", "size": "7x10cm", "fields": ["nombre", "origen", "tueste", "peso", "fechaCaducidad", "descripcion", "codigoQR", "logo"], "description": "Plantilla completa con logo y descripción" },
+    { "id": 3, "name": "Etiqueta Compacta", "size": "4x5cm", "fields": ["nombre", "fechaCaducidad", "codigoQR"], "description": "Plantilla minimalista para espacios reducidos" },
+    { "id": 4, "name": "Etiqueta Promocional", "size": "6x8cm", "fields": ["nombre", "precio", "descuento", "fechaCaducidad", "codigoQR"], "description": "Plantilla para productos en oferta" }
+  ],
+
   // Filtros activos
   filtrosLotes: {},
   filtrosProductos: {},
-  filtrosUsuarios: {}
+  filtrosUsuarios: {},
+
+  // Estado UI
+  selectedTemplateId: 1
 };
 
 // ======================== INICIALIZACIÓN DE LA APP ========================
-document.addEventListener('DOMContentLoaded', async function() {
+document.addEventListener('DOMContentLoaded', async function () {
   console.log(`%c${CONFIG.APP_NAME} v${CONFIG.VERSION}`, 'color: #8B5E3C; font-size: 16px; font-weight: bold;');
-  
+
+  setupEventListeners();
+
   // Verificar autenticación
   if (STATE.authToken) {
-    await validateToken();
+    console.log('✅ Sesión restaurada');
+    // Restaurar usuario global si es necesario
+    window.mcm_token = STATE.authToken;
+
+    // Si tenemos usuario guardado, actualizar rol
+    if (STATE.currentUser) {
+      STATE.currentRole = STATE.currentUser.rol || 'admin';
+    }
+
+    updateRoleBasedUI();
+    showView('dashboard');
   } else {
     showView('login');
   }
-  
-  setupEventListeners();
 });
 
 // ======================== FUNCIONES DE UTILIDAD ========================
@@ -67,12 +85,12 @@ document.addEventListener('DOMContentLoaded', async function() {
 async function apiCall(endpoint, method = 'GET', data = null) {
   try {
     console.log(`📤 API Request: ${method} ${endpoint}`);
-    
+
     // 🔑 PRIMERO variable global, LUEGO localStorage
     let token = window.mcm_token || localStorage.getItem('mcm_token');
-    
+
     console.log('🔐 Token fuente:', window.mcm_token ? 'window.mcm_token ✓' : 'localStorage');
-    
+
     if (!token) {
       console.error('❌ NO HAY TOKEN');
       if (typeof showLogin === 'function') {
@@ -80,28 +98,28 @@ async function apiCall(endpoint, method = 'GET', data = null) {
       }
       throw new Error('Sesión expirada');
     }
-    
+
     // ✅ RESTO DEL CÓDIGO
     const headers = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
       'Authorization': `Bearer ${token}`
     };
-    
+
     const options = {
       method: method,
       headers: headers
     };
-    
+
     if (data) {
       options.body = JSON.stringify(data);
     }
-    
+
     const baseURL = 'http://localhost:4000';
     const url = `${baseURL}/api${endpoint}`;
-    
+
     const response = await fetch(url, options);
-    
+
     if (response.status === 401) {
       console.error('❌ 401 - Token rechazado');
       window.mcm_token = null;
@@ -111,15 +129,15 @@ async function apiCall(endpoint, method = 'GET', data = null) {
       }
       throw new Error('Sesión expirada');
     }
-    
+
     if (!response.ok) {
       const text = await response.text();
       throw new Error(`HTTP ${response.status}`);
     }
-    
+
     const result = await response.json();
     return result;
-    
+
   } catch (error) {
     console.error('❌ API Error:', error);
     throw error;
@@ -138,66 +156,53 @@ function showLoading(show = true) {
 }
 
 /**
- * Mostrar notificación toast
+ * Mostrar Feedback Modal (Replaces Toast)
  */
-function showToast(message, type = 'info', duration = 4000) {
-  let container = document.getElementById('toastContainer');
-  
-  if (!container) {
-    container = document.createElement('div');
-    container.id = 'toastContainer';
-    container.style.cssText = `
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      z-index: 9999;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      font-family: system-ui, -apple-system, sans-serif;
-    `;
-    document.body.appendChild(container);
-  }
-  
-  const toast = document.createElement('div');
-  const colors = {
-    success: '#22C55E',
-    error: '#EF4444',
-    warning: '#F59E0B',
-    info: '#3B82F6'
+function showToast(message, type = 'info') {
+  showFeedback(message, type);
+}
+
+function showFeedback(message, type = 'info') {
+  const titleEl = document.getElementById('feedbackTitle');
+  const msgEl = document.getElementById('feedbackMessage');
+  const iconEl = document.getElementById('feedbackIcon');
+
+  // Config
+  const config = {
+    success: { icon: '<i class="fas fa-check-circle" style="color: #22C55E;"></i>', title: '¡Éxito!' },
+    error: { icon: '<i class="fas fa-times-circle" style="color: #EF4444;"></i>', title: 'Error' },
+    warning: { icon: '<i class="fas fa-exclamation-circle" style="color: #F59E0B;"></i>', title: 'Atención' },
+    info: { icon: '<i class="fas fa-info-circle" style="color: #3B82F6;"></i>', title: 'Información' }
   };
-  
-  toast.style.cssText = `
-    background: ${colors[type] || colors.info};
-    color: white;
-    padding: 12px 20px;
-    border-radius: 8px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-width: 280px;
-    animation: slideIn 0.3s ease-out;
-  `;
-  
-  const icons = {
-    success: '✓',
-    error: '✕',
-    warning: '⚠',
-    info: 'ℹ'
+
+  const cfg = config[type] || config.info;
+
+  titleEl.textContent = cfg.title;
+  msgEl.textContent = message;
+  iconEl.innerHTML = cfg.icon;
+
+  openModal('feedbackModal');
+}
+
+/**
+ * Mostrar Confirmación Modal
+ */
+function showConfirm(message, onConfirm) {
+  const msgEl = document.getElementById('confirmationMessage');
+  const btnConfirm = document.getElementById('btnConfirmOk');
+
+  msgEl.textContent = message;
+
+  // Clear previous event listeners to avoid stacking
+  const newBtn = btnConfirm.cloneNode(true);
+  btnConfirm.parentNode.replaceChild(newBtn, btnConfirm);
+
+  newBtn.onclick = function () {
+    closeModal('confirmationModal');
+    onConfirm();
   };
-  
-  toast.innerHTML = `
-    <span style="font-size: 18px; font-weight: bold;">${icons[type]}</span>
-    <span>${message}</span>
-  `;
-  
-  container.appendChild(toast);
-  
-  setTimeout(() => {
-    toast.style.animation = 'slideOut 0.3s ease-out';
-    setTimeout(() => toast.remove(), 300);
-  }, duration);
+
+  openModal('confirmationModal');
 }
 
 /**
@@ -206,7 +211,7 @@ function showToast(message, type = 'info', duration = 4000) {
 function formatDate(dateString) {
   if (!dateString) return '-';
   const date = new Date(dateString);
-  return date.toLocaleDateString('es-MX', { 
+  return date.toLocaleDateString('es-MX', {
     year: 'numeric',
     month: 'short',
     day: '2-digit'
@@ -267,101 +272,101 @@ function setInputValue(id, value) {
 
 async function handleLogin(e) {
   e.preventDefault();
-  
+
   const emailInput = document.getElementById('loginEmail');
   const passwordInput = document.getElementById('loginPassword');
-  
+
   if (!emailInput || !passwordInput) {
     console.error('❌ Inputs no encontrados');
     alert('Error: Inputs no encontrados en HTML');
     return;
   }
-  
+
   const email = emailInput.value.trim();
   const password = passwordInput.value.trim();
-  
+
   if (!email || !password) {
     alert('Por favor completa email y contraseña');
     return;
   }
-  
+
   try {
     console.log('📤 API Request: POST /auth/login');
     console.log('Credenciales:', { email, password });
-    
+
     const baseURL = 'http://localhost:4000';
-    
+
     const response = await fetch(baseURL + '/api/auth/login', {
       method: 'POST',
-      headers: { 
+      headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json'
       },
       body: JSON.stringify({ email, password })
     });
-    
+
     console.log('Response Status:', response.status);
-    
+
     if (response.status === 405) {
       alert('Error 405: Backend no responde correctamente');
       return;
     }
-    
+
     if (!response.ok) {
       const text = await response.text();
       throw new Error(`HTTP ${response.status}: ${text}`);
     }
-    
+
     const contentType = response.headers.get('content-type');
     if (!contentType || !contentType.includes('application/json')) {
       throw new Error('Respuesta no es JSON');
     }
-    
+
     const result = await response.json();
     console.log('✅ Login Response:', result);
-    
+
     if (!result.success) {
       alert(result.message || 'Login fallido');
       return;
     }
-    
+
     // ✅ CRÍTICO: Extraer token y usuario
     const token = result.data?.token || result.token;
     const user = result.data?.user || result.user || {};
-    
+
     console.log('Token recibido:', token);
     console.log('Usuario recibido:', user);
-    
+
     if (!token) {
       console.error('❌ No hay token en respuesta:', result);
       alert('Error: No se recibió token de autenticación');
       return;
     }
-    
+
     if (!user.id || !user.email) {
       console.error('❌ Usuario incompleto:', user);
       alert('Error: Datos de usuario incompletos');
       return;
     }
-        // ✅ CRÍTICO: GUARDAR TOKEN Y USUARIO ANTES DE NAVEGAR
+    // ✅ CRÍTICO: GUARDAR TOKEN Y USUARIO ANTES DE NAVEGAR
     localStorage.setItem('mcm_token', token);
     localStorage.setItem('mcm_user', JSON.stringify(user));
-    
+
     // ✅ GUARDAR EN VARIABLE GLOBAL TAMBIÉN (para evitar race condition)
     window.mcm_token = token;
     window.mcm_user = user;
-    
+
     // Verificar que se guardó
     console.log('✅ Token guardado en localStorage:', localStorage.getItem('mcm_token'));
     console.log('✅ Token guardado en variable global:', window.mcm_token);
     console.log('✅ Usuario guardado:', localStorage.getItem('mcm_user'));
-    
-    alert('¡Bienvenido ' + (user.nombre || user.email) + '!');
-    
+
+    // alert('¡Bienvenido ' + (user.nombre || user.email) + '!');
+
     // Limpiar formulario
     emailInput.value = '';
     passwordInput.value = '';
-    
+
     // ✅ NAVEGAR AL DASHBOARD DESPUÉS de guardar
     console.log('📊 Navegando a Dashboard...');
     if (typeof showDashboard === 'function') {
@@ -369,7 +374,7 @@ async function handleLogin(e) {
     } else if (typeof showView === 'function') {
       showView('dashboard');
     }
-    
+
   } catch (error) {
     console.error('❌ Error login:', error);
     alert('Error: ' + error.message);
@@ -383,7 +388,7 @@ async function handleLogin(e) {
 function showDashboard() {
   try {
     console.log('🎯 Mostrando dashboard...');
-    
+
     // 🔴 OCULTAR LOGIN - Buscar por la clase correcta
     const loginView = document.querySelector('.login-view');
     if (loginView) {
@@ -392,89 +397,41 @@ function showDashboard() {
       loginView.classList.add('hidden');
       console.log('✅ Login ocultado');
     }
-    
+
     // 🟢 MOSTRAR DASHBOARD
     const mainApp = document.getElementById('mainApp') ||
-                   document.querySelector('.main-app') ||
-                   document.querySelector('.app-container') ||
-                   document.querySelector('[data-view="app"]');
-    
+      document.querySelector('.main-app') ||
+      document.querySelector('.app-container') ||
+      document.querySelector('[data-view="app"]');
+
     if (mainApp) {
       mainApp.style.display = 'flex';
       mainApp.style.visibility = 'visible';
       mainApp.classList.remove('hidden');
       console.log('✅ Dashboard visible');
     }
-    
+
     // Mostrar nombre del usuario
     const user = JSON.parse(localStorage.getItem('mcm_user') || '{}');
     const userNameElement = document.querySelector('[data-user-name]') ||
-                           document.querySelector('.user-name') ||
-                           document.getElementById('userName');
-    
+      document.querySelector('.user-name') ||
+      document.getElementById('userName');
+
     if (userNameElement) {
       userNameElement.textContent = user.nombre || user.email || 'Usuario';
     }
-    
+
     // Cargar datos
     loadDashboardData();
-    
+
     console.log('✅ Dashboard cargado correctamente');
-    
+
   } catch (error) {
     console.error('❌ Error mostrando dashboard:', error);
   }
 }
 
-// ============================================
-// FUNCIÓN loadDashboardData
-// ============================================
-async function loadDashboardData() {
-  try {
-    console.log('📊 Cargando datos del dashboard...');
-    
-    const baseURL = 'http://localhost:4000';
-    const token = localStorage.getItem('mcm_token');
-    
-    // Cargar KPIs
-    const kpisRes = await fetch(baseURL + '/api/dashboard/kpis', {
-      headers: { 'Authorization': 'Bearer ' + token }
-    });
-    const kpis = await kpisRes.json();
-    
-    if (kpis.success) {
-      document.getElementById('activeLots').textContent = kpis.data.lotesActivos || 0;
-      document.getElementById('expiringLots').textContent = kpis.data.proximosCaducar || 0;
-      document.getElementById('lowStockProducts').textContent = kpis.data.stockBajo || 0;
-      document.getElementById('activeAlerts').textContent = kpis.data.alertasPendientes || 0;
-    }
-    
-    // Cargar lotes
-    const lotesRes = await fetch(baseURL + '/api/lotes', {
-      headers: { 'Authorization': 'Bearer ' + token }
-    });
-    const lotes = await lotesRes.json();
-    
-    if (lotes.success) {
-      const table = document.querySelector('#lotesTable tbody');
-      if (table) {
-        table.innerHTML = lotes.data.slice(0, 5).map(lote => `
-          <tr>
-            <td>${lote.code || lote.codigo}</td>
-            <td>${lote.product || lote.producto}</td>
-            <td>${lote.origin || lote.origen}</td>
-            <td><span class="status">${lote.status || lote.estado}</span></td>
-          </tr>
-        `).join('');
-      }
-    }
-    
-    console.log('✅ Datos cargados correctamente');
-    
-  } catch (error) {
-    console.error('❌ Error cargando datos:', error);
-  }
-}
+
 
 /**
  * Cerrar sesión
@@ -484,7 +441,7 @@ function handleLogout() {
     STATE.authToken = null;
     STATE.currentUser = null;
     localStorage.removeItem('mcm_auth_token');
-    
+
     showToast('Sesión cerrada', 'info');
     showView('login');
     document.getElementById('loginForm')?.reset();
@@ -499,25 +456,25 @@ function handleLogout() {
 function showView(viewName) {
   const views = document.querySelectorAll('.view, [data-view-content]');
   views.forEach(view => view.classList.remove('active'));
-  
-  const targetView = document.getElementById(viewName) || 
-                     document.querySelector(`[data-view-content="${viewName}"]`);
-  
+
+  const targetView = document.getElementById(viewName) ||
+    document.querySelector(`[data-view-content="${viewName}"]`);
+
   if (targetView) {
     targetView.classList.add('active');
-    
+
     // Actualizar navegación
     document.querySelectorAll('.nav-link, .nav-item').forEach(link => {
       link.classList.remove('active');
     });
     document.querySelector(`[data-view="${viewName}"], [data-nav="${viewName}"]`)?.classList.add('active');
-    
+
     // Actualizar breadcrumb
     updateBreadcrumb(viewName);
-    
+
     // Cargar datos específicos
     loadViewData(viewName);
-    
+
     STATE.currentView = viewName;
   }
 }
@@ -537,10 +494,10 @@ function updateBreadcrumb(viewName) {
     'logs': 'Log de Sesiones',
     'manual': 'Manual de Usuario'
   };
-  
-  const breadcrumb = document.getElementById('breadcrumbText') || 
-                     document.querySelector('.breadcrumb-current');
-  
+
+  const breadcrumb = document.getElementById('breadcrumbText') ||
+    document.querySelector('.breadcrumb-current');
+
   if (breadcrumb) {
     breadcrumb.textContent = breadcrumbTexts[viewName] || 'Dashboard';
   }
@@ -550,7 +507,7 @@ function updateBreadcrumb(viewName) {
  * Cargar datos específicos de cada vista
  */
 function loadViewData(viewName) {
-  switch(viewName) {
+  switch (viewName) {
     case 'dashboard':
       loadDashboard();
       break;
@@ -584,57 +541,18 @@ function loadViewData(viewName) {
 function loadDashboard() {
   try {
     console.log('📊 Cargando dashboard...');
-    
-    // Ya tenemos los datos, solo los mostramos
-    const dashboard = document.getElementById('dashboardView') ||
-                     document.getElementById('dashboard') ||
-                     document.querySelector('[data-view="dashboard"]');
-    
-    if (dashboard) {
-      dashboard.style.display = 'block';
-    }
-    
+
     // Cargar datos del servidor
     loadDashboardData();
-    
+
     console.log('✅ Dashboard cargado');
-    
+
   } catch (error) {
     console.error('❌ Error en loadDashboard:', error);
   }
 }
 
-// ============================================
-// FUNCIÓN loadLotes (PROBABLEMENTE TAMBIÉN LA NECESITAS)
-// ============================================
-function loadLotes() {
-  try {
-    console.log('📦 Cargando lotes...');
-    
-    const baseURL = 'http://localhost:4000';
-    const token = localStorage.getItem('mcm_token');
-    
-    fetch(baseURL + '/api/lotes', {
-      headers: { 'Authorization': 'Bearer ' + token }
-    })
-    .then(res => res.json())
-    .then(data => {
-      if (data.success) {
-        renderLotesTable(data.data);
-        console.log('✅ Lotes cargados');
-      } else {
-        loadLocalLotes();
-      }
-    })
-    .catch(err => {
-      console.warn('Error obteniendo lotes:', err);
-      loadLocalLotes();
-    });
-    
-  } catch (error) {
-    console.error('❌ Error en loadLotes:', error);
-  }
-}
+
 
 function loadLocalLotes() {
   try {
@@ -646,37 +564,7 @@ function loadLocalLotes() {
   }
 }
 
-// ============================================
-// FUNCIÓN loadProductos (PROBABLEMENTE TAMBIÉN LA NECESITAS)
-// ============================================
-function loadProductos() {
-  try {
-    console.log('📦 Cargando productos...');
-    
-    const baseURL = 'http://localhost:4000';
-    const token = localStorage.getItem('mcm_token');
-    
-    fetch(baseURL + '/api/productos', {
-      headers: { 'Authorization': 'Bearer ' + token }
-    })
-    .then(res => res.json())
-    .then(data => {
-      if (data.success) {
-        renderProductosTable(data.data);
-        console.log('✅ Productos cargados');
-      } else {
-        loadLocalProductos();
-      }
-    })
-    .catch(err => {
-      console.warn('Error obteniendo productos:', err);
-      loadLocalProductos();
-    });
-    
-  } catch (error) {
-    console.error('❌ Error en loadProductos:', error);
-  }
-}
+
 
 function loadLocalProductos() {
   try {
@@ -688,37 +576,7 @@ function loadLocalProductos() {
   }
 }
 
-// ============================================
-// FUNCIÓN loadAlertas (PROBABLEMENTE TAMBIÉN LA NECESITAS)
-// ============================================
-function loadAlertas() {
-  try {
-    console.log('🚨 Cargando alertas...');
-    
-    const baseURL = 'http://localhost:4000';
-    const token = localStorage.getItem('mcm_token');
-    
-    fetch(baseURL + '/api/alertas', {
-      headers: { 'Authorization': 'Bearer ' + token }
-    })
-    .then(res => res.json())
-    .then(data => {
-      if (data.success) {
-        renderAlertasTable(data.data);
-        console.log('✅ Alertas cargadas');
-      } else {
-        loadLocalAlertas();
-      }
-    })
-    .catch(err => {
-      console.warn('Error obteniendo alertas:', err);
-      loadLocalAlertas();
-    });
-    
-  } catch (error) {
-    console.error('❌ Error en loadAlertas:', error);
-  }
-}
+
 
 function loadLocalAlertas() {
   try {
@@ -736,17 +594,17 @@ function loadLocalAlertas() {
 function renderAlertasTable(alertas) {
   try {
     if (!Array.isArray(alertas)) return;
-    
+
     const tableBody = document.querySelector('#alertasTable tbody') ||
-                     document.querySelector('.alertas-table tbody');
-    
+      document.querySelector('.alertas-table tbody');
+
     if (!tableBody) {
       console.warn('⚠️ Tabla de alertas no encontrada');
       return;
     }
-    
+
     tableBody.innerHTML = '';
-    
+
     alertas.slice(0, 10).forEach(alerta => {
       const row = document.createElement('tr');
       row.innerHTML = `
@@ -757,9 +615,9 @@ function renderAlertasTable(alertas) {
       `;
       tableBody.appendChild(row);
     });
-    
+
     console.log('✅ Tabla de alertas actualizada');
-    
+
   } catch (error) {
     console.error('❌ Error renderizando alertas:', error);
   }
@@ -771,27 +629,27 @@ function renderAlertasTable(alertas) {
 function loadReportes() {
   try {
     console.log('📊 Cargando reportes...');
-    
+
     const baseURL = 'http://localhost:4000';
     const token = localStorage.getItem('mcm_token');
-    
+
     fetch(baseURL + '/api/reportes', {
       headers: { 'Authorization': 'Bearer ' + token }
     })
-    .then(res => res.json())
-    .then(data => {
-      if (data.success) {
-        renderReportesTable(data.data);
-        console.log('✅ Reportes cargados');
-      } else {
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          renderReportesTable(data.data);
+          console.log('✅ Reportes cargados');
+        } else {
+          loadLocalReportes();
+        }
+      })
+      .catch(err => {
+        console.warn('Error obteniendo reportes:', err);
         loadLocalReportes();
-      }
-    })
-    .catch(err => {
-      console.warn('Error obteniendo reportes:', err);
-      loadLocalReportes();
-    });
-    
+      });
+
   } catch (error) {
     console.error('❌ Error en loadReportes:', error);
   }
@@ -810,12 +668,12 @@ function loadLocalReportes() {
 function renderReportesTable(reportes) {
   try {
     if (!Array.isArray(reportes)) return;
-    
+
     const tableBody = document.querySelector('#reportesTable tbody');
     if (!tableBody) return;
-    
+
     tableBody.innerHTML = '';
-    
+
     reportes.slice(0, 10).forEach(reporte => {
       const row = document.createElement('tr');
       row.innerHTML = `
@@ -826,11 +684,141 @@ function renderReportesTable(reportes) {
       `;
       tableBody.appendChild(row);
     });
-    
+
   } catch (error) {
     console.error('Error renderizando reportes:', error);
   }
 }
+
+// Generate Report Listener
+const generateReporteBtn = document.getElementById('generateReporteBtn');
+if (generateReporteBtn) {
+  generateReporteBtn.addEventListener('click', generateReporte);
+}
+
+async function generateReporte() {
+  const type = document.getElementById('reporteType').value;
+  const startDate = document.getElementById('reporteStartDate').value;
+  const endDate = document.getElementById('reporteEndDate').value;
+  const format = document.getElementById('reporteFormat').value;
+
+  if (!type) {
+    showToast('Selecciona un tipo de reporte', 'warning');
+    return;
+  }
+
+  showLoading(true);
+  try {
+    const baseURL = 'http://localhost:4000';
+    const token = window.mcm_token || localStorage.getItem('mcm_token');
+
+    if (!token) {
+      showToast('No hay sesión activa', 'error');
+      showLoading(false);
+      return;
+    }
+
+    // IF CSV, Use direct backend download
+    if (format === 'CSV') {
+      const options = {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + token
+        },
+        body: JSON.stringify({ type, startDate, endDate, format })
+      };
+
+      const response = await fetch(baseURL + '/api/reportes/generate', options);
+      if (response.ok) {
+        const blob = await response.blob();
+        downloadBlob(blob, `reporte-${type}-${new Date().toISOString().split('T')[0]}.csv`);
+        showToast('Reporte CSV descargado', 'success');
+      } else {
+        const err = await response.text();
+        console.error('CSV Error:', err);
+        showToast('Error descargando CSV', 'error');
+      }
+      return;
+    }
+
+    // FOR PDF or EXCEL -> Fetch JSON first
+    const options = {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      },
+      body: JSON.stringify({ type, startDate, endDate, format: 'JSON' }) // Force JSON
+    };
+
+    const response = await fetch(baseURL + '/api/reportes/generate', options);
+    const result = await response.json();
+
+    if (!result.success || !result.data || result.data.length === 0) {
+      showToast('No hay datos para generar el reporte', 'warning');
+      return;
+    }
+
+    const data = result.data;
+    const filename = result.filename || `reporte-${type}`;
+
+    if (format === 'PDF') {
+      try {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+
+        doc.setFontSize(18);
+        doc.text(`Reporte: ${type.toUpperCase()}`, 14, 22);
+        doc.setFontSize(11);
+        doc.text(`Generado: ${new Date().toLocaleString()}`, 14, 30);
+
+        const headers = Object.keys(data[0]);
+        const rows = data.map(obj => Object.values(obj));
+
+        doc.autoTable({
+          head: [headers],
+          body: rows,
+          startY: 40,
+        });
+
+        doc.save(`${filename}.pdf`);
+        showToast('Reporte PDF generado', 'success');
+      } catch (pdfErr) {
+        console.error('PDF Generation Error:', pdfErr);
+        showToast('Error generando PDF. Verifique librerías.', 'error');
+      }
+    } else if (format === 'Excel') {
+      // Generate CSV/XLS compatible string
+      const headers = Object.keys(data[0]).join('\t');
+      const rows = data.map(obj => Object.values(obj).join('\t')).join('\n');
+      const excelContent = `${headers}\n${rows}`;
+
+      const blob = new Blob([excelContent], { type: 'application/vnd.ms-excel;charset=utf-8' });
+      downloadBlob(blob, `${filename}.xls`);
+      showToast('Reporte Excel descargado', 'success');
+    }
+
+  } catch (error) {
+    console.error('Error in generateReporte:', error);
+    showToast('Error de conexión al generar reporte', 'error');
+  } finally {
+    showLoading(false);
+  }
+}
+
+function downloadBlob(blob, filename) {
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.style.display = 'none';
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+}
+
 
 // ============================================
 // FUNCIÓN loadUsuarios (SI LA NECESITAS)
@@ -838,27 +826,27 @@ function renderReportesTable(reportes) {
 function loadUsuarios() {
   try {
     console.log('👥 Cargando usuarios...');
-    
+
     const baseURL = 'http://localhost:4000';
     const token = localStorage.getItem('mcm_token');
-    
+
     fetch(baseURL + '/api/usuarios', {
       headers: { 'Authorization': 'Bearer ' + token }
     })
-    .then(res => res.json())
-    .then(data => {
-      if (data.success) {
-        renderUsuariosTable(data.data);
-        console.log('✅ Usuarios cargados');
-      } else {
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          renderUsuariosTable(data.data);
+          console.log('✅ Usuarios cargados');
+        } else {
+          loadLocalUsuarios();
+        }
+      })
+      .catch(err => {
+        console.warn('Error obteniendo usuarios:', err);
         loadLocalUsuarios();
-      }
-    })
-    .catch(err => {
-      console.warn('Error obteniendo usuarios:', err);
-      loadLocalUsuarios();
-    });
-    
+      });
+
   } catch (error) {
     console.error('❌ Error en loadUsuarios:', error);
   }
@@ -877,12 +865,12 @@ function loadLocalUsuarios() {
 function renderUsuariosTable(usuarios) {
   try {
     if (!Array.isArray(usuarios)) return;
-    
+
     const tableBody = document.querySelector('#usuariosTable tbody');
     if (!tableBody) return;
-    
+
     tableBody.innerHTML = '';
-    
+
     usuarios.slice(0, 10).forEach(usuario => {
       const row = document.createElement('tr');
       row.innerHTML = `
@@ -893,7 +881,7 @@ function renderUsuariosTable(usuarios) {
       `;
       tableBody.appendChild(row);
     });
-    
+
   } catch (error) {
     console.error('Error renderizando usuarios:', error);
   }
@@ -904,21 +892,21 @@ function renderUsuariosTable(usuarios) {
  */
 function updateRoleBasedUI() {
   const role = STATE.currentRole;
-  
+
   // Actualizar nombre de usuario
-  const userNameEl = document.getElementById('currentUserName') || 
-                     document.querySelector('.user-name');
+  const userNameEl = document.getElementById('currentUserName') ||
+    document.querySelector('.user-name');
   if (userNameEl && STATE.currentUser) {
     userNameEl.textContent = STATE.currentUser.nombre;
   }
-  
+
   // Mostrar/ocultar elementos según rol
   const roleRestrictedElements = {
     'usuarios': 'admin',
     'logs': 'admin',
     'reportes': 'admin'
   };
-  
+
   Object.entries(roleRestrictedElements).forEach(([element, requiredRole]) => {
     const el = document.querySelector(`[data-role="${element}"], .nav-item-${element}`);
     if (el) {
@@ -932,76 +920,62 @@ function updateRoleBasedUI() {
 /**
  * Cargar datos del dashboard
  */
+/**
+ * Cargar datos del dashboard
+ */
 async function loadDashboardData() {
   try {
     console.log('📊 Cargando datos del dashboard...');
-    
-    const baseURL = 'http://localhost:4000';
-    const token = localStorage.getItem('mcm_token');
-    
-    if (!token) {
-      console.warn('⚠️ Sin token, usando datos locales');
-      loadLocalDashboardData();
-      return;
-    }
-    
-    // CARGAR KPIs
+
+    // 1. CARGAR KPIs
     try {
-      const kpisRes = await fetch(baseURL + '/api/dashboard/kpis', {
-        method: 'GET',
-        headers: { 'Authorization': 'Bearer ' + token }
-      });
-      
-      if (kpisRes.ok) {
-        const kpis = await kpisRes.json();
-        console.log('KPIs response:', kpis);
-        
-        // Verificar que existe success
-        if (kpis && kpis.success && kpis.data) {
-          console.log('✅ KPIs cargados');
-          updateKPIs(kpis.data);
-        } else if (kpis && kpis.data) {
-          console.log('✅ KPIs cargados (sin success)');
-          updateKPIs(kpis.data);
-        } else {
-          console.warn('⚠️ Respuesta KPIs inválida');
-          loadLocalDashboardData();
+      const kpisRes = await apiCall('/dashboard/kpis');
+      if (kpisRes.success) {
+        updateKPIs(kpisRes.data);
+
+        // Render Recent Alerts from KPI response if available
+        if (kpisRes.data.recentAlerts) {
+          renderDashboardAlerts(kpisRes.data.recentAlerts);
         }
       } else {
-        console.warn('⚠️ Error HTTP KPIs:', kpisRes.status);
+        console.warn('⚠️ Fallo carga KPIs, usando local');
         loadLocalDashboardData();
       }
     } catch (error) {
-      console.warn('⚠️ Error obteniendo KPIs:', error.message);
+      console.warn('⚠️ Error KPIs, usando local');
       loadLocalDashboardData();
     }
-    
-    // CARGAR LOTES
+
+    // 2. CARGAR LOTES RECIENTES
     try {
-      const lotesRes = await fetch(baseURL + '/api/lotes', {
-        method: 'GET',
-        headers: { 'Authorization': 'Bearer ' + token }
-      });
-      
-      if (lotesRes.ok) {
-        const lotes = await lotesRes.json();
-        
-        // Manejo flexible de respuesta
-        const lotsData = (lotes && lotes.data) || (lotes && lotes.lots) || [];
-        
-        if (Array.isArray(lotsData)) {
-          console.log('✅ Lotes cargados:', lotsData.length);
-          renderLotesTable(lotsData);
-        } else {
-          console.warn('⚠️ Lotes no es array');
-          loadLocalDashboardData();
-        }
+      const lotesRes = await apiCall('/lotes?pagina=1&paginaSize=10');
+      if (lotesRes.success) {
+        // En el dashboard mostramos lotes recientes en la tabla pequeña
+        renderRecentLots(lotesRes.data);
+
+        // También actualizamos la tabla principal se hay datos
+        if (STATE) STATE.lotes = lotesRes.data;
       }
     } catch (error) {
-      console.warn('⚠️ Error obteniendo lotes:', error.message);
-      loadLocalDashboardData();
+      console.warn('⚠️ Error Lotes recientes');
     }
-    
+
+    // 3. (REMOVED SEPARATE ALERTS CALL - Handled in KPIs)
+
+
+    // 4. CARGAR DATOS DE GRÁFICAS
+    try {
+      const chartsRes = await apiCall('/dashboard/charts');
+      if (chartsRes.success) {
+        initializeCharts(chartsRes.data);
+      } else {
+        initializeCharts(); // Fallback to static/empty
+      }
+    } catch (error) {
+      console.warn('⚠️ Error Graficas');
+      initializeCharts();
+    }
+
   } catch (error) {
     console.error('❌ Error cargando datos dashboard:', error);
     loadLocalDashboardData();
@@ -1011,78 +985,18 @@ async function loadDashboardData() {
 // Función auxiliar - ASEGÚRATE DE QUE EXISTE
 function loadLocalDashboardData() {
   console.log('📦 Cargando datos locales...');
-  
+
   try {
     if (typeof appData !== 'undefined' && appData) {
       if (appData.kpis) updateKPIs(appData.kpis);
-      if (appData.lots) renderLotesTable(appData.lots);
+      if (appData.lots) renderRecentLots(appData.lots);
+      if (appData.alerts) renderDashboardAlerts(appData.alerts); // Assuming alerts exist in appData
       console.log('✅ Datos locales cargados');
     }
   } catch (error) {
     console.error('Error cargando datos locales:', error);
   }
 }
-
-// Función para actualizar KPIs - ASEGÚRATE DE QUE EXISTE
-function updateKPIs(data) {
-  try {
-    if (!data) return;
-    
-    // Buscar elementos KPI por varios selectores posibles
-    const kpiMap = {
-      'lotesActivos': ['activeLots', 'kpi-lotes', 'lotes-activos'],
-      'proximosCaducar': ['expiringLots', 'kpi-caducidad', 'lotes-caducidad'],
-      'stockBajo': ['lowStockProducts', 'kpi-stock', 'productos-bajo'],
-      'alertasPendientes': ['activeAlerts', 'kpi-alertas', 'alertas-pendientes']
-    };
-    
-    for (let [key, selectors] of Object.entries(kpiMap)) {
-      const value = data[key] || data[selectors[0]] || 0;
-      
-      selectors.forEach(selector => {
-        const el = document.getElementById(selector);
-        if (el) el.textContent = value;
-      });
-    }
-    
-  } catch (error) {
-    console.warn('⚠️ Error actualizando KPIs:', error);
-  }
-}
-
-// Función para renderizar tabla de lotes - ASEGÚRATE DE QUE EXISTE
-function renderLotesTable(lotes) {
-  try {
-    if (!Array.isArray(lotes)) return;
-    
-    const tableBody = document.querySelector('#lotesTable tbody') ||
-                     document.querySelector('.lotes-table tbody');
-    
-    if (!tableBody) {
-      console.warn('⚠️ Tabla de lotes no encontrada');
-      return;
-    }
-    
-    tableBody.innerHTML = '';
-    
-    lotes.slice(0, 10).forEach(lote => {
-      const row = document.createElement('tr');
-      row.innerHTML = `
-        <td>${lote.code || lote.codigo || '-'}</td>
-        <td>${lote.product || lote.producto || '-'}</td>
-        <td>${lote.origin || lote.origen || '-'}</td>
-        <td><span class="status">${lote.status || lote.estado || 'Activo'}</span></td>
-      `;
-      tableBody.appendChild(row);
-    });
-    
-    console.log('✅ Tabla de lotes actualizada');
-    
-  } catch (error) {
-    console.error('❌ Error renderizando lotes:', error);
-  }
-}
-
 
 /**
  * Actualizar KPIs
@@ -1094,7 +1008,7 @@ function updateKPIs(kpis) {
     'stockBajo': '.kpi-low-stock',
     'alertasActivas': '.kpi-active-alerts'
   };
-  
+
   Object.entries(kpiMap).forEach(([key, selector]) => {
     const el = document.querySelector(selector);
     if (el) {
@@ -1106,54 +1020,69 @@ function updateKPIs(kpis) {
 /**
  * Renderizar alertas en dashboard
  */
+/**
+ * Renderizar alertas en dashboard
+ */
 function renderDashboardAlerts(alertas) {
-  const container = document.getElementById('dashboardAlerts') || 
-                    document.querySelector('.recent-alerts-list');
-  
+  const container = document.getElementById('dashboardAlerts') ||
+    document.querySelector('.recent-alerts-list');
+
   if (!container) return;
-  
+
+  // Header Title matching mockup
+  const headerHtml = '<h3 class="alerts-section-title"></h3>';
+
   if (!alertas || alertas.length === 0) {
-    container.innerHTML = '<p style="padding: 20px; text-align: center; color: #999;">No hay alertas pendientes</p>';
+    container.innerHTML = headerHtml + '<p style="padding: 20px; text-align: center; color: #999;">No hay alertas pendientes</p>';
     return;
   }
-  
-  container.innerHTML = alertas.slice(0, 6).map(alerta => {
-    const iconMap = {
+
+  const alertsHtml = alertas.slice(0, 6).map(alerta => {
+    const iconClass = {
       'Caducidad': 'clock',
       'Stock Bajo': 'exclamation-triangle',
       'Sistema': 'info-circle'
-    };
-    
+    }[alerta.tipo] || 'alert-circle';
+
+    // Determine border color class
+    let borderClass = 'border-blue';
+    if (alerta.tipo === 'Caducidad') borderClass = 'border-red';
+    if (alerta.tipo === 'Stock Bajo') borderClass = 'border-orange';
+
     return `
-      <div class="alert-item alert-${alerta.prioridad?.toLowerCase() || 'media'}">
-        <div class="alert-icon">
-          <i class="fas fa-${iconMap[alerta.tipo] || 'alert-circle'}"></i>
+      <div class="alert-card ${borderClass}">
+        <div class="alert-icon-wrapper">
+           <i class="fas fa-${iconClass}"></i>
         </div>
-        <div class="alert-content">
-          <strong>${alerta.tipo}</strong>
-          <p>${alerta.mensaje}</p>
-          <small>${formatDate(alerta.fecha)}</small>
+        <div class="alert-text-content">
+          <div class="alert-title">
+             <strong>${alerta.descripcion || alerta.mensaje}</strong>
+          </div>
+          <div class="alert-meta">
+            ${formatDate(alerta.fecha)} - ${alerta.tipo}
+          </div>
         </div>
-        <span class="priority-badge ${alerta.prioridad?.toLowerCase()}">${alerta.prioridad}</span>
       </div>
     `;
   }).join('');
+
+  container.innerHTML = headerHtml + '<div class="alerts-list-container">' + alertsHtml + '</div>';
 }
 
 /**
  * Renderizar lotes recientes
  */
 function renderRecentLots(lotes) {
-  const tbody = document.getElementById('recentLotsBody') || 
-                document.querySelector('#dashboardLotsTable tbody');
-  
+  const tbody = document.getElementById('recentLotsBody') ||
+    document.querySelector('#dashboardLotsTable tbody');
+
   if (!tbody) return;
-  
+
   if (!lotes || lotes.length === 0) {
     tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px; color: #999;">No hay lotes registrados</td></tr>';
     return;
   }
-  
+
   tbody.innerHTML = lotes.slice(0, 8).map(lote => `
     <tr>
       <td><strong>${lote.codigo}</strong></td>
@@ -1171,56 +1100,115 @@ function renderRecentLots(lotes) {
 }
 
 /**
+ * Global Chart Instances to handle updates/destruction
+ */
+let stockChartInstance = null;
+let alertsChartInstance = null;
+
+/**
  * Inicializar gráficas (Chart.js)
  */
-function initializeCharts() {
+function initializeCharts(chartData) {
+  // Default data if none provided
+  const stockLabels = chartData?.stock?.labels || ['Premium Chiapas', 'Orgánico Veracruz', 'Descafeinado', 'Espresso Blend', 'Colombia Supremo', 'Guatemala Antigua'];
+  const stockValues = chartData?.stock?.data || [85, 42, 23, 67, 91, 18];
+
+  const alertLabels = chartData?.alertas?.labels || ['Caducidad', 'Stock Bajo', 'Sistema'];
+  const alertValues = chartData?.alertas?.data || [5, 3, 2];
+
   // Gráfica de Stock
   const stockCtx = document.getElementById('stockChart');
   if (stockCtx && typeof Chart !== 'undefined') {
-    new Chart(stockCtx, {
+    if (stockChartInstance) stockChartInstance.destroy();
+
+    stockChartInstance = new Chart(stockCtx, {
       type: 'bar',
       data: {
-        labels: ['Premium Chiapas', 'Orgánico Veracruz', 'Descafeinado', 'Espresso Blend', 'Colombia Supremo', 'Guatemala Antigua'],
+        labels: stockLabels,
         datasets: [{
           label: 'Stock Actual',
-          data: [85, 42, 23, 67, 91, 18],
-          backgroundColor: '#8B5E3C',
-          borderColor: '#4B3621',
-          borderWidth: 1
+          data: stockValues,
+          backgroundColor: [
+            '#26C6DA', // Cyan
+            '#FFCA28', // Orange
+            '#A52A2A', // Dark Red/Brown
+            '#F0F4C3', // Light Beige
+            '#546E7A', // Blue Grey
+            '#EF5350', // Red
+            '#8D6E63', // Brown
+            '#7E57C2'  // Deep Purple
+          ],
+          borderColor: 'transparent',
+          borderWidth: 0,
+          borderRadius: 0
         }]
       },
       options: {
         responsive: true,
         plugins: {
-          legend: { display: true },
-          title: { display: true, text: 'Niveles de Stock' }
+          legend: { display: false },
+          title: {
+            display: true,
+            text: 'Niveles de Stock por Producto',
+            font: { size: 16, weight: 'bold', family: 'Inter' },
+            color: '#3E2723',
+            align: 'start',
+            padding: { bottom: 20 }
+          }
         },
         scales: {
-          y: { beginAtZero: true }
-        }
+          y: {
+            beginAtZero: true,
+            grid: { color: 'rgba(0,0,0,0.05)' },
+            ticks: { color: '#5D4037', font: { weight: '500' } }
+          },
+          x: {
+            grid: { display: true, color: 'rgba(0,0,0,0.05)' },
+            ticks: { color: '#5D4037', font: { weight: '500' } }
+          }
+        },
+        layout: { padding: 10 }
       }
     });
   }
-  
+
   // Gráfica de Alertas
   const alertsCtx = document.getElementById('alertsChart');
   if (alertsCtx && typeof Chart !== 'undefined') {
-    new Chart(alertsCtx, {
+    if (alertsChartInstance) alertsChartInstance.destroy();
+
+    alertsChartInstance = new Chart(alertsCtx, {
       type: 'doughnut',
       data: {
-        labels: ['Caducidad', 'Stock Bajo', 'Sistema'],
+        labels: alertLabels,
         datasets: [{
-          data: [5, 3, 2],
-          backgroundColor: ['#EF4444', '#F59E0B', '#3B82F6'],
-          borderColor: '#fff',
+          data: alertValues,
+          backgroundColor: ['#EF5350', '#FFA726', '#8D6E63', '#26C6DA', '#7E57C2'],
+          borderColor: '#FFF8E1',
           borderWidth: 2
         }]
       },
       options: {
         responsive: true,
+        cutout: '55%',
         plugins: {
-          legend: { position: 'bottom' },
-          title: { display: true, text: 'Alertas por Tipo' }
+          legend: {
+            position: 'bottom',
+            labels: {
+              color: '#5D4037',
+              padding: 20,
+              usePointStyle: true,
+              font: { family: 'Inter', size: 12 }
+            }
+          },
+          title: {
+            display: true,
+            text: 'Distribución de Alertas',
+            font: { size: 16, weight: 'bold', family: 'Inter' },
+            color: '#3E2723',
+            align: 'start',
+            padding: { bottom: 20 }
+          }
         }
       }
     });
@@ -1235,7 +1223,7 @@ function initializeCharts() {
 async function loadLotes() {
   try {
     console.log('📦 Cargando lotes...');
-    
+
     try {
       const data = await apiCall('/lotes?pagina=1&paginaSize=10');
       if (data.success && data.data) {
@@ -1246,10 +1234,10 @@ async function loadLotes() {
     } catch (error) {
       console.warn('⚠️ Servidor no disponible, usando datos locales');
     }
-    
+
     // FALLBACK A DATOS LOCALES
     loadLocalLotes();
-    
+
   } catch (error) {
     console.error('❌ Error en loadLotes:', error);
     loadLocalLotes();
@@ -1267,74 +1255,26 @@ function loadLocalLotes() {
   }
 }
 
-function loadLocalLotes() {
-  try {
-    if (typeof appData !== 'undefined' && appData.lots) {
-      renderLotesTable(appData.lots);
-      console.log('✅ Lotes locales cargados');
-    }
-  } catch (error) {
-    console.error('Error cargando lotes locales:', error);
-  }
-}
-
-function renderLotesTable(lotes) {
-  try {
-    if (!Array.isArray(lotes)) {
-      console.warn('⚠️ Lotes no es array:', lotes);
-      return;
-    }
-    
-    const tableBody = document.querySelector('#lotesTable tbody') ||
-                     document.querySelector('.lotes-table tbody');
-    
-    if (!tableBody) {
-      console.warn('⚠️ Tabla de lotes no encontrada');
-      return;
-    }
-    
-    tableBody.innerHTML = '';
-    
-    lotes.slice(0, 20).forEach(lote => {
-      const row = document.createElement('tr');
-      row.innerHTML = `
-        <td>${lote.codigo || lote.code || '-'}</td>
-        <td>${lote.producto || lote.product || '-'}</td>
-        <td>${lote.origen || lote.origin || '-'}</td>
-        <td>${lote.tueste || lote.roast || '-'}</td>
-        <td>${lote.pesoActual || lote.currentWeight || '-'}</td>
-        <td>${lote.fechaCaducidad || lote.expiration || '-'}</td>
-        <td><span class="status">${lote.estado || lote.status || 'activo'}</span></td>
-      `;
-      tableBody.appendChild(row);
-    });
-    
-    console.log(`✅ ${lotes.length} lotes renderizados en tabla`);
-    
-  } catch (error) {
-    console.error('❌ Error renderizando lotes:', error);
-  }
-}
-
-
 /**
- * Renderizar tabla de lotes
+ * Renderizar tabla de lotes (Vista Principal)
  */
-function renderLotesTable() {
-  const tbody = document.getElementById('lotesTableBody') || 
-                document.querySelector('#lotesTable tbody');
-  
+function renderLotesTable(lotesInput = null) {
+  const lotes = lotesInput || STATE.lotes;
+
+  const tbody = document.getElementById('lotesTableBody') ||
+    document.querySelector('#lotesTable tbody');
+
   if (!tbody) return;
-  
-  if (!STATE.lotes || STATE.lotes.length === 0) {
+
+  if (!lotes || lotes.length === 0) {
     tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px; color: #999;">No hay lotes encontrados</td></tr>';
     return;
   }
-  
-  tbody.innerHTML = STATE.lotes.map(lote => `
+
+  tbody.innerHTML = lotes.map(lote => `
     <tr>
       <td><strong>${lote.codigo}</strong></td>
-      <td>${lote.producto}</td>
+      <td>${lote.productoNombre}</td>
       <td>${lote.origen}</td>
       <td>${lote.tipoTueste}</td>
       <td>${lote.pesoActual || lote.peso}kg</td>
@@ -1347,13 +1287,16 @@ function renderLotesTable() {
       </td>
       <td>
         <div class="action-buttons">
-          <button class="btn-icon edit" onclick="editLote('${lote.id}')" title="Editar">
+          <button class="btn-action view" onclick="viewLote('${lote.id}')" title="Ver Detalle">
+            <i class="fas fa-eye"></i>
+          </button>
+          <button class="btn-action edit" onclick="editLote('${lote.id}')" title="Editar">
             <i class="fas fa-edit"></i>
           </button>
-          <button class="btn-icon delete" onclick="deleteLote('${lote.id}')" title="Eliminar">
+          <button class="btn-action delete" onclick="deleteLote('${lote.id}')" title="Eliminar">
             <i class="fas fa-trash"></i>
           </button>
-          <button class="btn-icon label" onclick="generateLabel('${lote.id}')" title="Generar etiqueta">
+          <button class="btn-action label" onclick="generateLabel('${lote.id}')" title="Generar etiqueta">
             <i class="fas fa-tag"></i>
           </button>
         </div>
@@ -1363,13 +1306,89 @@ function renderLotesTable() {
 }
 
 /**
+ * Ver Detalle Lote
+ */
+function viewLote(loteId) {
+  const lote = STATE.lotes.find(l => l.id == loteId);
+  if (!lote) return;
+
+  // Populate Modal
+  document.getElementById('detailCodigo').textContent = lote.codigo;
+  document.getElementById('detailProducto').textContent = lote.productoNombre || lote.producto;
+  document.getElementById('detailOrigen').textContent = lote.origen;
+  document.getElementById('detailTueste').textContent = lote.tipoTueste;
+  document.getElementById('detailPeso').textContent = (lote.pesoActual || lote.peso) + ' kg';
+
+  const statusEl = document.getElementById('detailEstado');
+  if (statusEl) {
+    statusEl.innerHTML = `
+        <span class="status-badge status-${lote.estado.toLowerCase().replace(/\s/g, '-')}">
+          ${lote.estado}
+        </span>`;
+  }
+
+  document.getElementById('detailFechaTueste').textContent = formatDate(lote.fechaTueste);
+  document.getElementById('detailCaducidad').textContent = formatDate(lote.fechaCaducidad);
+  document.getElementById('detailCreador').textContent = lote.creadorNombre || 'Desconocido';
+  document.getElementById('detailFechaCreacion').textContent = lote.creadoEn ? formatDateTime(lote.creadoEn) : 'N/A';
+  document.getElementById('detailNotas').textContent = lote.notas || '-';
+
+  // Bind Edit Button
+  const btnEdit = document.getElementById('btnEditFromDetail');
+  if (btnEdit) {
+    btnEdit.onclick = function () {
+      closeModal('loteDetailModal');
+      editLote(loteId);
+    };
+  }
+
+  // Show Modal
+  openModal('loteDetailModal');
+}
+
+/**
+ * Generar Etiqueta desde Lote
+ */
+function generateLabel(loteId) {
+  // Save selection
+  STATE.preselectedLotId = loteId;
+
+  // Switch view
+  showView('etiquetas');
+}
+
+/**
  * Abrir modal para nuevo lote
  */
-function openNewLoteModal() {
+async function openNewLoteModal() {
   STATE.editingLoteId = null;
   document.getElementById('loteFormTitle').textContent = 'Nuevo Lote';
   document.getElementById('loteForm').reset();
+  await populateProductOptions();
   document.getElementById('loteModal').classList.add('active');
+}
+
+/**
+ * Helper para poblar select de productos
+ */
+async function populateProductOptions(selectedId = null) {
+  const select = document.getElementById('productoId');
+  if (!select) return;
+
+  // Fetch if needed
+  if (!STATE.productos || STATE.productos.length === 0) {
+    try {
+      const res = await apiCall('/productos');
+      if (res.success) STATE.productos = res.data;
+    } catch (e) { console.error("Error fetching products", e); }
+  }
+
+  select.innerHTML = '<option value="">Selecciona un producto</option>' +
+    STATE.productos.map(p => `<option value="${p.id}">${p.nombre}</option>`).join('');
+
+  if (selectedId) {
+    select.value = selectedId;
+  }
 }
 
 /**
@@ -1377,19 +1396,22 @@ function openNewLoteModal() {
  */
 async function editLote(loteId) {
   STATE.editingLoteId = loteId;
-  
-  const lote = STATE.lotes.find(l => l.id === loteId);
+
+  const lote = STATE.lotes.find(l => l.id == loteId);
   if (lote) {
     document.getElementById('loteFormTitle').textContent = 'Editar Lote';
+    await populateProductOptions(lote.productoId); // Use productoId
+
     setInputValue('codigo', lote.codigo);
     setInputValue('origen', lote.origen);
     setInputValue('tipoTueste', lote.tipoTueste);
     setInputValue('pesoInicial', lote.pesoInicial);
-    setInputValue('pesoActual', lote.pesoActual);
+    setInputValue('pesoActual', lote.pesoActual || lote.peso); // Fallback to peso if pesoActual null
     setInputValue('fechaTueste', lote.fechaTueste?.split('T')[0]);
     setInputValue('fechaCaducidad', lote.fechaCaducidad?.split('T')[0]);
     setInputValue('estado', lote.estado);
-    
+    setInputValue('notas', lote.notas);
+
     document.getElementById('loteModal').classList.add('active');
   }
 }
@@ -1399,43 +1421,38 @@ async function editLote(loteId) {
  */
 async function saveLote(e) {
   if (e) e.preventDefault();
-  
+
   const loteData = {
     codigo: getInputValue('codigo'),
+    productoId: getInputValue('productoId'), // Changed from producto text
     origen: getInputValue('origen'),
     tipoTueste: getInputValue('tipoTueste'),
     pesoInicial: parseFloat(getInputValue('pesoInicial')),
     pesoActual: parseFloat(getInputValue('pesoActual')),
+    peso: parseFloat(getInputValue('pesoActual')), // Add peso (using pesoActual)
     fechaTueste: getInputValue('fechaTueste'),
     fechaCaducidad: getInputValue('fechaCaducidad'),
     estado: getInputValue('estado'),
-    producto: getInputValue('producto'),
     notas: getInputValue('notas')
   };
-  
+
   // Validaciones
-  if (!loteData.codigo || !loteData.origen || !loteData.fechaTueste) {
+  if (!loteData.codigo || !loteData.productoId || !loteData.fechaTueste) {
     showToast('Por favor completa los campos obligatorios', 'warning');
     return;
   }
-  
+
   try {
     let result;
-    
+
     if (STATE.editingLoteId) {
       // Actualizar
-      result = await apiCall(`/lotes/${STATE.editingLoteId}`, {
-        method: 'PUT',
-        body: JSON.stringify(loteData)
-      });
+      result = await apiCall(`/lotes/${STATE.editingLoteId}`, 'PUT', loteData);
     } else {
       // Crear
-      result = await apiCall('/lotes', {
-        method: 'POST',
-        body: JSON.stringify(loteData)
-      });
+      result = await apiCall('/lotes', 'POST', loteData);
     }
-    
+
     if (result.success) {
       showToast(`Lote ${STATE.editingLoteId ? 'actualizado' : 'creado'} correctamente`, 'success');
       closeLoteModal();
@@ -1450,20 +1467,18 @@ async function saveLote(e) {
  * Eliminar lote
  */
 async function deleteLote(loteId) {
-  if (!confirm('¿Está seguro de eliminar este lote?')) return;
-  
-  try {
-    const result = await apiCall(`/lotes/${loteId}`, {
-      method: 'DELETE'
-    });
-    
-    if (result.success) {
-      showToast('Lote eliminado correctamente', 'success');
-      loadLotes();
+  showConfirm('¿Está seguro de eliminar este lote?', async () => {
+    try {
+      const result = await apiCall(`/lotes/${loteId}`, 'DELETE');
+
+      if (result.success) {
+        showToast('Lote eliminado correctamente', 'success');
+        loadLotes();
+      }
+    } catch (error) {
+      showToast('Error eliminando lote', 'error');
     }
-  } catch (error) {
-    showToast('Error eliminando lote', 'error');
-  }
+  });
 }
 
 /**
@@ -1486,9 +1501,9 @@ async function loadProductos() {
       pagina: STATE.currentPage,
       paginaSize: STATE.itemsPerPage
     }).toString();
-    
+
     const result = await apiCall(`/productos?${params}`);
-    
+
     if (result.success) {
       STATE.productos = result.data;
       renderProductosTable();
@@ -1500,43 +1515,82 @@ async function loadProductos() {
 }
 
 /**
- * Renderizar tabla de productos
+ * Renderizar productos (Premium Grid)
  */
 function renderProductosTable() {
-  const tbody = document.getElementById('productosTableBody') || 
-                document.querySelector('#productosTable tbody');
-  
-  if (!tbody) return;
-  
-  if (!STATE.productos || STATE.productos.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px; color: #999;">No hay productos registrados</td></tr>';
+  renderProductosGrid();
+}
+
+/**
+ * Render Grid View High End
+ */
+/**
+ * Render Grid View High End
+ */
+function renderProductosGrid(products = null) {
+  const grid = document.getElementById('productosGrid');
+  if (!grid) return;
+
+  const dataToRender = products || STATE.productos;
+
+  if (!dataToRender || dataToRender.length === 0) {
+    grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #999;">No hay productos registrados</div>';
     return;
   }
-  
-  tbody.innerHTML = STATE.productos.map(producto => `
-    <tr>
-      <td><strong>${producto.nombre}</strong></td>
-      <td>${producto.origen}</td>
-      <td>${producto.tipoGrano}</td>
-      <td>${producto.stockActual} / ${producto.stockMinimo}</td>
-      <td>
-        <span class="status-badge ${producto.stockActual < producto.stockMinimo ? 'status-bajo' : 'status-disponible'}">
-          ${producto.stockActual < producto.stockMinimo ? 'Stock Bajo' : 'Disponible'}
-        </span>
-      </td>
-      <td>$${producto.precioUnitario}</td>
-      <td>
-        <div class="action-buttons">
-          <button class="btn-icon edit" onclick="editProducto('${producto.id}')" title="Editar">
-            <i class="fas fa-edit"></i>
-          </button>
-          <button class="btn-icon delete" onclick="deleteProducto('${producto.id}')" title="Eliminar">
-            <i class="fas fa-trash"></i>
-          </button>
+
+  grid.innerHTML = dataToRender.map(p => {
+    // Calculations
+    const stockPct = p.stockMinimo > 0 ? (p.stockActual / (p.stockMinimo * 2)) * 100 : 50;
+    const displayPct = Math.min(Math.max(stockPct, 5), 100);
+    const isLow = p.stockActual < p.stockMinimo;
+    const statusBadge = isLow
+      ? '<span class="stock-badge badge-low">STOCK BAJO</span>'
+      : '<span class="stock-badge badge-available">DISPONIBLE</span>';
+
+    return `
+        <div class="product-card-premium">
+            <div class="card-header-icon">
+                <i class="fas fa-mug-hot"></i>
+                <div class="product-actions-overlay">
+                    <button class="btn-overlay edit" onclick="editProducto('${p.id}')">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button class="btn-overlay delete" onclick="deleteProducto('${p.id}')">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="card-body">
+                <h3 class="product-title">${p.nombre}</h3>
+                
+                <div class="product-meta-row">
+                    <span><i class="fas fa-map-marker-alt"></i> ${p.origen}</span>
+                    <span><i class="fas fa-leaf"></i> ${p.grano}</span>
+                </div>
+
+                <div class="stock-info">
+                    <div class="stock-labels">
+                        <span>Stock: ${p.stockActual} / ${p.stockMinimo}</span>
+                        ${statusBadge}
+                    </div>
+                    <div class="stock-progress-bar">
+                        <div class="stock-progress-fill" style="width: ${displayPct}%; background-color: ${isLow ? '#EF6C00' : '#2E7D32'}"></div>
+                    </div>
+                </div>
+
+                <div class="product-details-text">
+                    <strong>Presentaciones:</strong> ${p.presentacion || 'N/A'}<br>
+                    <small>${p.descripcion || ''}</small><br>
+                </div>
+
+                <div class="product-price-tag">
+                    $${parseFloat(p.precio).toFixed(2)} / kg
+                </div>
+            </div>
         </div>
-      </td>
-    </tr>
-  `).join('');
+        `;
+  }).join('');
 }
 
 /**
@@ -1554,18 +1608,20 @@ function openNewProductoModal() {
  */
 async function editProducto(productoId) {
   STATE.editingProductId = productoId;
-  
+
   const producto = STATE.productos.find(p => p.id === productoId);
   if (producto) {
     document.getElementById('productoFormTitle').textContent = 'Editar Producto';
     setInputValue('nombreProducto', producto.nombre);
     setInputValue('origenProducto', producto.origen);
-    setInputValue('tipoGranoProducto', producto.tipoGrano);
+    // User renamed input to granoProducto. Mapping grano/tipoGrano to it.
+    setInputValue('granoProducto', producto.grano);
     setInputValue('stockActualProducto', producto.stockActual);
     setInputValue('stockMinimoProducto', producto.stockMinimo);
-    setInputValue('precioProducto', producto.precioUnitario);
+    setInputValue('precioProducto', producto.precio || producto.precioUnitario);
     setInputValue('descripcionProducto', producto.descripcion);
-    
+    setInputValue('presentacionProducto', producto.presentacion); // New simple input
+
     document.getElementById('productoModal').classList.add('active');
   }
 }
@@ -1575,38 +1631,32 @@ async function editProducto(productoId) {
  */
 async function saveProducto(e) {
   if (e) e.preventDefault();
-  
+
   const productoData = {
     nombre: getInputValue('nombreProducto'),
     origen: getInputValue('origenProducto'),
-    tipoGrano: getInputValue('tipoGranoProducto'),
+    grano: getInputValue('granoProducto'),
     stockActual: parseFloat(getInputValue('stockActualProducto')),
     stockMinimo: parseFloat(getInputValue('stockMinimoProducto')),
     precioUnitario: parseFloat(getInputValue('precioProducto')),
     descripcion: getInputValue('descripcionProducto'),
-    presentaciones: getInputValue('presentacionesProducto')?.split(',') || []
+    presentacion: getInputValue('presentacionProducto') // Simple text
   };
-  
+
   if (!productoData.nombre || !productoData.origen) {
     showToast('Por favor completa los campos obligatorios', 'warning');
     return;
   }
-  
+
   try {
     let result;
-    
+
     if (STATE.editingProductId) {
-      result = await apiCall(`/productos/${STATE.editingProductId}`, {
-        method: 'PUT',
-        body: JSON.stringify(productoData)
-      });
+      result = await apiCall(`/productos/${STATE.editingProductId}`, 'PUT', productoData);
     } else {
-      result = await apiCall('/productos', {
-        method: 'POST',
-        body: JSON.stringify(productoData)
-      });
+      result = await apiCall('/productos', 'POST', productoData);
     }
-    
+
     if (result.success) {
       showToast(`Producto ${STATE.editingProductId ? 'actualizado' : 'creado'} correctamente`, 'success');
       closeProductoModal();
@@ -1621,20 +1671,18 @@ async function saveProducto(e) {
  * Eliminar producto
  */
 async function deleteProducto(productoId) {
-  if (!confirm('¿Está seguro de eliminar este producto?')) return;
-  
-  try {
-    const result = await apiCall(`/productos/${productoId}`, {
-      method: 'DELETE'
-    });
-    
-    if (result.success) {
-      showToast('Producto eliminado correctamente', 'success');
-      loadProductos();
+  showConfirm('¿Está seguro de eliminar este producto?', async () => {
+    try {
+      const result = await apiCall(`/productos/${productoId}`, 'DELETE');
+
+      if (result.success) {
+        showToast('Producto eliminado correctamente', 'success');
+        loadProductos();
+      }
+    } catch (error) {
+      showToast('Error eliminando producto', 'error');
     }
-  } catch (error) {
-    showToast('Error eliminando producto', 'error');
-  }
+  });
 }
 
 /**
@@ -1657,9 +1705,9 @@ async function loadUsuarios() {
       pagina: STATE.currentPage,
       paginaSize: STATE.itemsPerPage
     }).toString();
-    
+
     const result = await apiCall(`/usuarios?${params}`);
-    
+
     if (result.success) {
       STATE.usuarios = result.data;
       renderUsuariosTable();
@@ -1674,16 +1722,16 @@ async function loadUsuarios() {
  * Renderizar tabla de usuarios
  */
 function renderUsuariosTable() {
-  const tbody = document.getElementById('usuariosTableBody') || 
-                document.querySelector('#usuariosTable tbody');
-  
+  const tbody = document.getElementById('usuariosTableBody') ||
+    document.querySelector('#usuariosTable tbody');
+
   if (!tbody) return;
-  
+
   if (!STATE.usuarios || STATE.usuarios.length === 0) {
     tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px; color: #999;">No hay usuarios registrados</td></tr>';
     return;
   }
-  
+
   tbody.innerHTML = STATE.usuarios.map(usuario => `
     <tr>
       <td><strong>${usuario.nombre}</strong></td>
@@ -1721,7 +1769,7 @@ function openNewUsuarioModal() {
  */
 async function editUsuario(usuarioId) {
   STATE.editingUserId = usuarioId;
-  
+
   const usuario = STATE.usuarios.find(u => u.id === usuarioId);
   if (usuario) {
     document.getElementById('usuarioFormTitle').textContent = 'Editar Usuario';
@@ -1729,10 +1777,10 @@ async function editUsuario(usuarioId) {
     setInputValue('emailUsuario', usuario.email);
     setInputValue('rolUsuario', usuario.rol);
     setInputValue('estadoUsuario', usuario.estado);
-    
+
     // Ocultar contraseña si es edición
     document.getElementById('passwordUsuarioGroup').style.display = 'none';
-    
+
     document.getElementById('usuarioModal').classList.add('active');
   }
 }
@@ -1742,14 +1790,14 @@ async function editUsuario(usuarioId) {
  */
 async function saveUsuario(e) {
   if (e) e.preventDefault();
-  
+
   const usuarioData = {
     nombre: getInputValue('nombreUsuario'),
     email: getInputValue('emailUsuario'),
     rol: getInputValue('rolUsuario'),
     estado: getInputValue('estadoUsuario')
   };
-  
+
   if (!STATE.editingUserId) {
     usuarioData.password = getInputValue('passwordUsuario');
     if (!usuarioData.password) {
@@ -1757,32 +1805,26 @@ async function saveUsuario(e) {
       return;
     }
   }
-  
+
   if (!usuarioData.nombre || !usuarioData.email || !usuarioData.rol) {
     showToast('Por favor completa los campos obligatorios', 'warning');
     return;
   }
-  
+
   if (!validateEmail(usuarioData.email)) {
     showToast('Email inválido', 'warning');
     return;
   }
-  
+
   try {
     let result;
-    
+
     if (STATE.editingUserId) {
-      result = await apiCall(`/usuarios/${STATE.editingUserId}`, {
-        method: 'PUT',
-        body: JSON.stringify(usuarioData)
-      });
+      result = await apiCall(`/usuarios/${STATE.editingUserId}`, 'PUT', usuarioData);
     } else {
-      result = await apiCall('/usuarios', {
-        method: 'POST',
-        body: JSON.stringify(usuarioData)
-      });
+      result = await apiCall('/usuarios', 'POST', usuarioData);
     }
-    
+
     if (result.success) {
       showToast(`Usuario ${STATE.editingUserId ? 'actualizado' : 'creado'} correctamente`, 'success');
       closeUsuarioModal();
@@ -1797,20 +1839,18 @@ async function saveUsuario(e) {
  * Eliminar usuario
  */
 async function deleteUsuario(usuarioId) {
-  if (!confirm('¿Está seguro de eliminar este usuario?')) return;
-  
-  try {
-    const result = await apiCall(`/usuarios/${usuarioId}`, {
-      method: 'DELETE'
-    });
-    
-    if (result.success) {
-      showToast('Usuario eliminado correctamente', 'success');
-      loadUsuarios();
+  showConfirm('¿Está seguro de eliminar este usuario?', async () => {
+    try {
+      const result = await apiCall(`/usuarios/${usuarioId}`, 'DELETE');
+
+      if (result.success) {
+        showToast('Usuario eliminado correctamente', 'success');
+        loadUsuarios();
+      }
+    } catch (error) {
+      showToast('Error eliminando usuario', 'error');
     }
-  } catch (error) {
-    showToast('Error eliminando usuario', 'error');
-  }
+  });
 }
 
 /**
@@ -1830,7 +1870,7 @@ function closeUsuarioModal() {
 async function loadAlertas() {
   try {
     const result = await apiCall('/alertas');
-    
+
     if (result.success) {
       STATE.alertas = result.data;
       renderAlertasTable();
@@ -1844,16 +1884,16 @@ async function loadAlertas() {
  * Renderizar tabla de alertas
  */
 function renderAlertasTable() {
-  const tbody = document.getElementById('alertasTableBody') || 
-                document.querySelector('#alertasTable tbody');
-  
+  const tbody = document.getElementById('alertasTableBody') ||
+    document.querySelector('#alertasTable tbody');
+
   if (!tbody) return;
-  
+
   if (!STATE.alertas || STATE.alertas.length === 0) {
     tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px; color: #999;">No hay alertas registradas</td></tr>';
     return;
   }
-  
+
   tbody.innerHTML = STATE.alertas.map(alerta => `
     <tr>
       <td><strong>${alerta.tipo}</strong></td>
@@ -1882,12 +1922,12 @@ async function toggleAlertaEstado(alertaId) {
   try {
     const alerta = STATE.alertas.find(a => a.id === alertaId);
     const nuevoEstado = alerta.estado === 'Activo' ? 'Resuelto' : 'Activo';
-    
+
     const result = await apiCall(`/alertas/${alertaId}`, {
       method: 'PUT',
       body: JSON.stringify({ estado: nuevoEstado })
     });
-    
+
     if (result.success) {
       showToast(`Alerta marcada como ${nuevoEstado.toLowerCase()}`, 'success');
       loadAlertas();
@@ -1902,12 +1942,12 @@ async function toggleAlertaEstado(alertaId) {
  */
 async function deleteAlerta(alertaId) {
   if (!confirm('¿Está seguro de eliminar esta alerta?')) return;
-  
+
   try {
     const result = await apiCall(`/alertas/${alertaId}`, {
       method: 'DELETE'
     });
-    
+
     if (result.success) {
       showToast('Alerta eliminada correctamente', 'success');
       loadAlertas();
@@ -1925,7 +1965,7 @@ async function deleteAlerta(alertaId) {
 async function loadEtiquetas() {
   try {
     const result = await apiCall('/etiquetas/plantillas');
-    
+
     if (result.success) {
       STATE.plantillaEtiquetas = result.data;
       renderPlantillasEtiquetas();
@@ -1941,12 +1981,12 @@ async function loadEtiquetas() {
 function renderPlantillasEtiquetas() {
   const container = document.getElementById('plantillasContainer');
   if (!container) return;
-  
+
   if (!STATE.plantillaEtiquetas || STATE.plantillaEtiquetas.length === 0) {
     container.innerHTML = '<p>No hay plantillas disponibles</p>';
     return;
   }
-  
+
   container.innerHTML = STATE.plantillaEtiquetas.map(plantilla => `
     <div class="plantilla-card">
       <h4>${plantilla.nombre}</h4>
@@ -1975,13 +2015,14 @@ function selectPlantilla(plantillaId) {
 /**
  * Generar etiquetas para un lote
  */
-async function generateLabel(loteId) {
+async function generateLabel2(loteId) {
+  console.log("LOTES: ", STATE.lotes)
   const lote = STATE.lotes.find(l => l.id === loteId);
-  if (!lote) {
-    showToast('Lote no encontrado', 'error');
-    return;
-  }
-  
+  // if (!lote) {
+  //   showToast('Lote no encontrado', 'error');
+  //   return;
+  // }
+
   try {
     const result = await apiCall(`/etiquetas/generar`, {
       method: 'POST',
@@ -1991,7 +2032,7 @@ async function generateLabel(loteId) {
         formato: 'PDF'
       })
     });
-    
+
     if (result.success) {
       showToast('Etiqueta generada correctamente', 'success');
       // Descargar PDF
@@ -2012,7 +2053,7 @@ async function generateLabel(loteId) {
 async function loadReportes() {
   try {
     const result = await apiCall('/reportes');
-    
+
     if (result.success) {
       STATE.reportes = result.data;
       renderReportesTable();
@@ -2026,16 +2067,16 @@ async function loadReportes() {
  * Renderizar tabla de reportes
  */
 function renderReportesTable() {
-  const tbody = document.getElementById('reportesTableBody') || 
-                document.querySelector('#reportesTable tbody');
-  
+  const tbody = document.getElementById('reportesTableBody') ||
+    document.querySelector('#reportesTable tbody');
+
   if (!tbody) return;
-  
+
   if (!STATE.reportes || STATE.reportes.length === 0) {
     tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px; color: #999;">No hay reportes disponibles</td></tr>';
     return;
   }
-  
+
   tbody.innerHTML = STATE.reportes.map(reporte => `
     <tr>
       <td><strong>${reporte.nombre}</strong></td>
@@ -2059,11 +2100,11 @@ async function downloadReporte(reporteId) {
   try {
     const reporte = STATE.reportes.find(r => r.id === reporteId);
     if (!reporte) return;
-    
+
     const result = await apiCall(`/reportes/${reporteId}/descargar`, {
       method: 'GET'
     });
-    
+
     if (result.success && result.data.url) {
       window.open(result.data.url, '_blank');
       showToast('Descargando reporte...', 'success');
@@ -2076,41 +2117,7 @@ async function downloadReporte(reporteId) {
 /**
  * Generar nuevo reporte
  */
-async function generateReporte(e) {
-  if (e) e.preventDefault();
-  
-  const reporteData = {
-    tipo: getInputValue('reporteType'),
-    fechaInicio: getInputValue('reporteStartDate'),
-    fechaFin: getInputValue('reporteEndDate'),
-    formato: getInputValue('reporteFormat')
-  };
-  
-  if (!reporteData.tipo || !reporteData.fechaInicio || !reporteData.fechaFin) {
-    showToast('Por favor completa todos los campos', 'warning');
-    return;
-  }
-  
-  try {
-    const result = await apiCall('/reportes/generar', {
-      method: 'POST',
-      body: JSON.stringify(reporteData)
-    });
-    
-    if (result.success) {
-      showToast('Reporte generado correctamente', 'success');
-      
-      // Descargar automáticamente
-      if (result.data.url) {
-        setTimeout(() => window.open(result.data.url, '_blank'), 500);
-      }
-      
-      loadReportes();
-    }
-  } catch (error) {
-    showToast('Error generando reporte: ' + error.message, 'error');
-  }
-}
+
 
 // ======================== LOG DE SESIONES ========================
 
@@ -2120,7 +2127,7 @@ async function generateReporte(e) {
 async function loadSessionLogs() {
   try {
     const result = await apiCall('/logs/sesiones');
-    
+
     if (result.success) {
       renderSessionLogs(result.data);
     }
@@ -2133,16 +2140,16 @@ async function loadSessionLogs() {
  * Renderizar log de sesiones
  */
 function renderSessionLogs(logs) {
-  const tbody = document.getElementById('sessionLogsBody') || 
-                document.querySelector('#logsTable tbody');
-  
+  const tbody = document.getElementById('sessionLogsBody') ||
+    document.querySelector('#logsTable tbody');
+
   if (!tbody) return;
-  
+
   if (!logs || logs.length === 0) {
     tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px; color: #999;">No hay registros</td></tr>';
     return;
   }
-  
+
   tbody.innerHTML = logs.map(log => `
     <tr>
       <td>${log.usuario}</td>
@@ -2176,7 +2183,7 @@ function loadManual() {
 function loadManualSection(sectionId) {
   const manualContent = document.getElementById('manualContent');
   if (!manualContent) return;
-  
+
   const sections = {
     'inicio': {
       title: 'Primeros Pasos',
@@ -2265,7 +2272,7 @@ function loadManualSection(sectionId) {
       `
     }
   };
-  
+
   const section = sections[sectionId] || sections['inicio'];
   manualContent.innerHTML = section.content;
 }
@@ -2282,7 +2289,7 @@ function applyLotesFilter() {
     desde: getInputValue('filterDesde'),
     hasta: getInputValue('filterHasta')
   };
-  
+
   STATE.currentPage = 1;
   loadLotes();
 }
@@ -2295,9 +2302,9 @@ function clearFilters() {
   STATE.filtrosProductos = {};
   STATE.filtrosUsuarios = {};
   STATE.currentPage = 1;
-  
+
   document.querySelectorAll('.filter-input').forEach(input => input.value = '');
-  
+
   if (STATE.currentView === 'lotes') loadLotes();
   else if (STATE.currentView === 'productos') loadProductos();
   else if (STATE.currentView === 'usuarios') loadUsuarios();
@@ -2310,12 +2317,12 @@ function clearFilters() {
  */
 function updatePagination(pagination) {
   if (!pagination) return;
-  
+
   const container = document.getElementById('paginationContainer');
   if (!container) return;
-  
+
   const totalPages = Math.ceil(pagination.total / STATE.itemsPerPage);
-  
+
   container.innerHTML = `
     <div class="pagination-controls">
       <button onclick="previousPage()" ${STATE.currentPage === 1 ? 'disabled' : ''}>
@@ -2356,26 +2363,26 @@ function setupEventListeners() {
   // Login
   document.getElementById('loginForm')?.addEventListener('submit', handleLogin);
   document.getElementById('logoutBtn')?.addEventListener('click', handleLogout);
-  
+
   // Lotes
   document.getElementById('loteForm')?.addEventListener('submit', saveLote);
   document.getElementById('newLoteBtn')?.addEventListener('click', openNewLoteModal);
   document.getElementById('closeLoteModal')?.addEventListener('click', closeLoteModal);
   document.getElementById('applyLotesFilter')?.addEventListener('click', applyLotesFilter);
-  
+
   // Productos
   document.getElementById('productoForm')?.addEventListener('submit', saveProducto);
   document.getElementById('newProductoBtn')?.addEventListener('click', openNewProductoModal);
   document.getElementById('closeProductoModal')?.addEventListener('click', closeProductoModal);
-  
+
   // Usuarios
   document.getElementById('usuarioForm')?.addEventListener('submit', saveUsuario);
   document.getElementById('newUsuarioBtn')?.addEventListener('click', openNewUsuarioModal);
   document.getElementById('closeUsuarioModal')?.addEventListener('click', closeUsuarioModal);
-  
+
   // Reportes
   document.getElementById('generateReporteBtn')?.addEventListener('click', generateReporte);
-  
+
   // Navegación
   document.querySelectorAll('.nav-link, [data-view]').forEach(link => {
     link.addEventListener('click', (e) => {
@@ -2384,7 +2391,7 @@ function setupEventListeners() {
       if (viewName) showView(viewName);
     });
   });
-  
+
   // Cerrar modales al clickear fuera
   document.querySelectorAll('.modal').forEach(modal => {
     modal.addEventListener('click', (e) => {
@@ -2393,7 +2400,7 @@ function setupEventListeners() {
       }
     });
   });
-  
+
   // Enter en inputs de filtros
   document.querySelectorAll('.filter-input').forEach(input => {
     input.addEventListener('keypress', (e) => {
@@ -2435,16 +2442,16 @@ function copyToClipboard(text) {
 function exportTableToCSV(tableId, filename) {
   const table = document.getElementById(tableId);
   if (!table) return;
-  
+
   let csv = [];
   const headers = [];
-  
+
   // Obtener encabezados
   table.querySelectorAll('th').forEach(th => {
     headers.push(th.textContent.trim());
   });
   csv.push(headers.join(','));
-  
+
   // Obtener filas
   table.querySelectorAll('tbody tr').forEach(tr => {
     const row = [];
@@ -2453,14 +2460,14 @@ function exportTableToCSV(tableId, filename) {
     });
     csv.push(row.join(','));
   });
-  
+
   // Descargar
   const csvContent = 'data:text/csv;charset=utf-8,' + csv.join('\n');
   const link = document.createElement('a');
   link.setAttribute('href', encodeURI(csvContent));
   link.setAttribute('download', filename || 'export.csv');
   link.click();
-  
+
   showToast('Tabla exportada a CSV', 'success');
 }
 
@@ -2470,7 +2477,7 @@ function exportTableToCSV(tableId, filename) {
 function printTable(tableId) {
   const table = document.getElementById(tableId);
   if (!table) return;
-  
+
   const printWindow = window.open('', '', 'width=800,height=600');
   printWindow.document.write('<html><head><title>Reporte</title>');
   printWindow.document.write('<link rel="stylesheet" href="style.css">');
@@ -2478,7 +2485,7 @@ function printTable(tableId) {
   printWindow.document.write(table.outerHTML);
   printWindow.document.write('</body></html>');
   printWindow.document.close();
-  
+
   setTimeout(() => {
     printWindow.print();
   }, 250);
@@ -2517,3 +2524,485 @@ if (typeof document !== 'undefined') {
   document.head.appendChild(style);
 }
 console.log('%c✓ App.js cargado correctamente', 'color: #22C55E; font-weight: bold;');
+
+// ======================== ETIQUETAS LOGIC ========================
+
+function loadEtiquetas() {
+  renderLabelTemplates();
+  loadLabelFormOptions();
+  // Default preview
+  updateLabelPreview();
+}
+
+function renderLabelTemplates() {
+  const grid = document.getElementById('plantillasGrid');
+  if (!grid) return;
+
+  grid.innerHTML = STATE.plantillaEtiquetas.map(p => `
+      <div class="plantilla-card ${STATE.selectedTemplateId === p.id ? 'active' : ''}" 
+           onclick="selectLabelTemplate(${p.id})">
+          <h4>${p.name}</h4>
+          <p>${p.description}</p>
+          <div class="plantilla-meta">
+              <i class="fas fa-ruler-combined"></i> ${p.size}
+              <span style="margin-left: 10px"><i class="fas fa-list"></i> ${p.fields.length} campos</span>
+          </div>
+      </div>
+  `).join('');
+}
+
+function selectLabelTemplate(id) {
+  STATE.selectedTemplateId = id;
+  renderLabelTemplates();
+  updateLabelPreview();
+}
+
+// Make it global so HTML can call it
+window.selectLabelTemplate = selectLabelTemplate;
+
+async function loadLabelFormOptions() {
+  // Populate Products
+  const prodSelect = document.getElementById('labelProductSelect');
+  if (prodSelect) {
+    // Ensure we have products
+    if (!STATE.productos || STATE.productos.length === 0) {
+      try {
+        const res = await apiCall('/productos');
+        if (res.success) STATE.productos = res.data;
+      } catch (e) { }
+    }
+
+    if (STATE.productos.length > 0) {
+      prodSelect.innerHTML = '<option value="">Seleccionar producto</option>' +
+        STATE.productos.map(p => `<option value="${p.id}">${p.nombre}</option>`).join('');
+    }
+
+    prodSelect.onchange = updateLabelPreview;
+  }
+
+  // Populate Lots
+  const lotSelect = document.getElementById('labelLotSelect');
+  if (lotSelect) {
+    if (!STATE.lotes || STATE.lotes.length === 0) {
+      try {
+        // Try fetching if empty
+        const res = await apiCall('/lotes');
+        if (res.success) STATE.lotes = res.data;
+      } catch (e) { }
+    }
+
+    if (STATE.lotes.length > 0) {
+      // Enforce fetching a few if empty? No, we trust STATE or fetch above
+      lotSelect.innerHTML = '<option value="">Seleccionar lote</option>' +
+        STATE.lotes.map(l => `<option value="${l.id}">${l.codigo} (${l.origen})</option>`).join('');
+    }
+
+    lotSelect.onchange = updateLabelPreview;
+  }
+
+  // Quantity listener
+  const qtyInput = document.getElementById('labelQuantity');
+  if (qtyInput) qtyInput.oninput = updateLabelPreview;
+
+  // Generate Button
+  const btnGen = document.getElementById('btnGenerateLabels');
+  if (btnGen) btnGen.onclick = addToPrintQueue;
+
+  // Handle Pre-selection from Lotes View
+  if (STATE.preselectedLotId && STATE.lotes.length > 0) {
+    const lotId = STATE.preselectedLotId;
+    const lot = STATE.lotes.find(l => l.id == lotId);
+
+    if (lot) {
+      // Select Lot
+      if (lotSelect) lotSelect.value = lotId;
+
+      // Select Product (find product by name match or ID if available)
+      // Since lotes usually have productoId, we should use that. 
+      // If not available, we try to match by name from lot.productoNombre
+      if (prodSelect) {
+        const prod = STATE.productos.find(p => p.nombre === lot.productoNombre);
+        if (prod) prodSelect.value = prod.id;
+      }
+
+      updateLabelPreview();
+    }
+
+    // Clear selection
+    STATE.preselectedLotId = null;
+  }
+}
+
+function updateLabelPreview() {
+  const previewBox = document.getElementById('labelPreview');
+  if (!previewBox) return;
+
+  const template = STATE.plantillaEtiquetas.find(p => p.id === STATE.selectedTemplateId);
+  const prodId = document.getElementById('labelProductSelect')?.value;
+  const prod = STATE.productos.find(p => p.id == prodId);
+
+  if (!template) return;
+
+  if (!prod) {
+    previewBox.innerHTML = `
+          <div style="opacity: 0.5;">
+              <h4>${template.name}</h4>
+              <p>Seleccione un producto para ver el resultado final</p>
+              <div style="margin-top: 20px; font-size: 30px;"><i class="fas fa-barcode"></i></div>
+          </div>
+      `;
+    return;
+  }
+
+  // Generate mockup preview based on template type
+  let content = `<div style="text-align: center; width: 100%;">`;
+
+  // Premium adds branded header
+  if (template.id === 2) {
+    content += `<div style="border-bottom: 1px solid #ddd; padding-bottom: 5px; margin-bottom: 5px; font-weight: bold; color: #8D6E63; text-transform: uppercase; letter-spacing: 1px;">Mexhi Coffee</div>`;
+  }
+
+  // Compact has smaller text
+  const titleSize = template.id === 3 ? '1.1em' : '1.4em';
+  content += `<h3 style="margin: 5px 0; color: #3E2723; font-size: ${titleSize};">${prod.nombre}</h3>`;
+
+  if (template.id !== 3) {
+    content += `<p style="font-size: 0.9em; margin: 4px 0;"><strong>Origen:</strong> ${prod.origen || 'N/A'}</p>`;
+    content += `<p style="font-size: 0.9em; margin: 2px 0;"><strong>Tueste:</strong> ${prod.tipoGrano || 'Medio'}</p>`;
+  }
+
+  if (template.id === 4) { // Promo
+    content += `<div style="background: #E53935; color: white; padding: 2px 8px; border-radius: 4px; display: inline-block; margin: 5px 0; font-size: 0.8em; font-weight: bold;">OFERTA ESPECIAL</div>`;
+    content += `<p style="font-size: 1.1em; color: #3E2723; font-weight: bold; margin: 4px 0;">$${(prod.precio * 0.9).toFixed(2)}</p>`;
+  }
+
+  const lotId = document.getElementById('labelLotSelect')?.value;
+  const lot = STATE.lotes.find(l => l.id == lotId);
+  let caducidad = '15/10/2026';
+
+  if (lot && lot.fechaCaducidad) {
+    const date = new Date(lot.fechaCaducidad);
+    caducidad = date.toLocaleDateString();
+  }
+
+  content += `<p style="font-size: 0.8em; margin: 8px 0; color: #666;">Caduca: ${caducidad}</p>`;
+
+  content += `<div style="margin-top: 10px; font-size: 32px; color: #3E2723;"><i class="fas fa-qrcode"></i></div>`;
+  content += `</div>`;
+
+  previewBox.innerHTML = content;
+}
+
+function addToPrintQueue() {
+  const prodId = document.getElementById('labelProductSelect')?.value;
+  const qty = document.getElementById('labelQuantity')?.value || 10;
+  const prod = STATE.productos.find(p => p.id == prodId);
+  const template = STATE.plantillaEtiquetas.find(p => p.id === STATE.selectedTemplateId);
+
+  if (!prodId || !prod) {
+    showToast('Seleccione un producto primero', 'error');
+    return;
+  }
+
+  const queue = document.getElementById('labelQueue');
+  const item = document.createElement('div');
+  item.className = 'queue-item';
+  item.innerHTML = `
+      <div class="queue-item-info">
+          <div><i class="fas fa-tag" style="color: #8D6E63; margin-right: 8px;"></i> <strong>${prod.nombre}</strong></div>
+          <div style="font-size: 0.85em; color: #666; margin-top: 4px;">
+              ${qty} etiquetas • ${template.name} (${template.size})
+          </div>
+      </div>
+      <div>
+          <span class="status-pending">Pendiente</span>
+          <button class="btn-icon delete" style="margin-left: 10px;" onclick="this.closest('.queue-item').remove()">
+              <i class="fas fa-times"></i>
+          </button>
+      </div>
+  `;
+
+  // Animación de entrada
+  item.style.animation = 'slideIn 0.3s ease-out';
+
+  queue.prepend(item);
+  showToast(`Agregadas ${qty} etiquetas a la cola`, 'success');
+}
+
+// ======================== FILTROS PRODUCTOS ========================
+const btnApply = document.getElementById('applyProductosFilter');
+const btnClear = document.getElementById('clearProductosFilter');
+
+if (btnApply) btnApply.addEventListener('click', filterProductos);
+if (btnClear) btnClear.addEventListener('click', clearProductosFilter);
+
+function filterProductos() {
+  const term = document.getElementById('filterProductoNombre').value.toLowerCase();
+  const status = document.getElementById('filterProductoEstado').value;
+
+  const filtered = STATE.productos.filter(p => {
+    const matchesTerm = !term ||
+      (p.nombre && p.nombre.toLowerCase().includes(term)) ||
+      (p.origen && p.origen.toLowerCase().includes(term));
+
+    // Calculate status manually if not in DB, assuming same logic as grid render
+    let displayPct = 0;
+    if (p.stockMinimo > 0) {
+      displayPct = Math.min((p.stockActual / p.stockMinimo) * 100, 100);
+    }
+
+    let pStatus = 'DISPONIBLE';
+    if (parseFloat(p.stockActual) === 0) pStatus = 'AGOTADO';
+    else if (parseFloat(p.stockActual) <= parseFloat(p.stockMinimo)) pStatus = 'STOCK BAJO';
+
+    const matchesStatus = !status || pStatus === status;
+
+    return matchesTerm && matchesStatus;
+  });
+
+  renderProductosGrid(filtered);
+}
+
+function clearProductosFilter() {
+  document.getElementById('filterProductoNombre').value = '';
+  document.getElementById('filterProductoEstado').value = '';
+  renderProductosGrid(STATE.productos);
+}
+
+// ======================== FILTROS LOTES ========================
+const btnApplyLotes = document.getElementById('applyLotesFilter');
+const btnClearLotes = document.getElementById('clearLotesFilter'); // Assuming clear button exists or add logic if needed
+
+if (btnApplyLotes) btnApplyLotes.addEventListener('click', filterLotes);
+
+function filterLotes() {
+  const term = document.getElementById('filterOrigen')?.value.toLowerCase();
+  const status = document.getElementById('filterEstado')?.value;
+  const dateFrom = document.getElementById('filterDesde')?.value;
+  const dateHasta = document.getElementById('filterHasta')?.value;
+
+  const filtered = STATE.lotes.filter(l => {
+    const matchesTerm = !term ||
+      (l.origen && l.origen.toLowerCase().includes(term)) ||
+      (l.codigo && l.codigo.toLowerCase().includes(term));
+
+    const matchesStatus = !status || l.estado === status;
+
+    let matchesDate = true;
+    if (dateFrom && l.fechaTueste) {
+      matchesDate = matchesDate && new Date(l.fechaTueste) >= new Date(dateFrom);
+    }
+    if (dateHasta && l.fechaTueste) {
+      matchesDate = matchesDate && new Date(l.fechaTueste) <= new Date(dateHasta);
+    }
+
+    return matchesTerm && matchesStatus && matchesDate;
+  });
+
+  renderLotesTable(filtered);
+}
+
+// Clear logic if button exists
+function clearLotesFilters() {
+  if (document.getElementById('filterOrigen')) document.getElementById('filterOrigen').value = '';
+  if (document.getElementById('filterEstado')) document.getElementById('filterEstado').value = '';
+  if (document.getElementById('filterDesde')) document.getElementById('filterDesde').value = '';
+  if (document.getElementById('filterHasta')) document.getElementById('filterHasta').value = '';
+  renderLotesTable(STATE.lotes);
+}
+
+// ======================== GESTIÓN DE ALERTAS ========================
+
+// Event Listeners for Filters
+const filterAlertTipo = document.getElementById('filterAlertTipo');
+const filterAlertPrioridad = document.getElementById('filterAlertPrioridad');
+const filterAlertEstado = document.getElementById('filterAlertEstado');
+
+if (filterAlertTipo) filterAlertTipo.addEventListener('change', filterAlertas);
+if (filterAlertPrioridad) filterAlertPrioridad.addEventListener('change', filterAlertas);
+if (filterAlertEstado) filterAlertEstado.addEventListener('change', filterAlertas);
+
+/**
+ * Cargar Alertas
+ */
+async function loadAlertas() {
+  try {
+    const grid = document.getElementById('alertasGrid');
+    if (grid) grid.innerHTML = `
+        <div style="text-align: center; color: #999; padding: 40px;">
+            <i class="fas fa-spinner fa-spin fa-2x"></i>
+            <p style="margin-top: 10px;">Cargando alertas...</p>
+        </div>`;
+
+    const result = await apiCall('/alertas');
+
+    if (result.success) {
+      STATE.alertas = result.data;
+      filterAlertas(); // This calls renderAlertsGrid
+    } else {
+      showToast('Error cargando alertas', 'error');
+    }
+  } catch (error) {
+    console.error('Error loading alerts:', error);
+    showToast('Error de conexión', 'error');
+  }
+}
+
+/**
+ * Filtrar y Renderizar
+ */
+function filterAlertas() {
+  const tipo = document.getElementById('filterAlertTipo')?.value;
+  const prioridad = document.getElementById('filterAlertPrioridad')?.value;
+  const estado = document.getElementById('filterAlertEstado')?.value;
+
+  const filtered = STATE.alertas.filter(a => {
+    return (!tipo || a.tipo === tipo) &&
+      (!prioridad || a.prioridad === prioridad) &&
+      (!estado || a.estado === estado);
+  });
+
+  renderAlertsGrid(filtered);
+}
+
+/**
+ * Renderizar Grid de Alertas
+ */
+function renderAlertsGrid(alertas) {
+  const grid = document.getElementById('alertasGrid');
+  if (!grid) return;
+
+  if (!alertas || alertas.length === 0) {
+    grid.innerHTML = '<div style="text-align: center; color: #999; padding: 40px;">No hay alertas que coincidan con los filtros</div>';
+    return;
+  }
+
+  grid.innerHTML = alertas.map(alert => {
+    const priorityClass = `priority-${alert.prioridad.toLowerCase()}`;
+    const statusClass = alert.estado === 'Resuelto' ? 'status-resuelto' : '';
+    const icon = getAlertIcon(alert.tipo);
+
+    return `
+      <div class="alert-card ${priorityClass} ${statusClass}" style="padding: 15px; margin-bottom: 10px;">
+        <div class="alert-icon-wrapper" style="width: 40px; height: 40px; font-size: 1em; margin-right: 15px;">
+          <i class="fas ${icon}"></i>
+        </div>
+        <div class="alert-content">
+          <div class="alert-title" style="font-size: 1em;">${alert.titulo}</div>
+          <div class="alert-message" style="font-size: 0.9em; margin-bottom: 4px;">${alert.mensaje}</div>
+          <div class="alert-meta" style="font-size: 0.75em;">
+            <span>${formatDateTime(alert.fecha)}</span> • 
+            <span>${alert.estado}</span>
+          </div>
+        </div>
+        <div class="alert-actions">
+          ${alert.estado === 'Pendiente' ? `
+            <button class="btn-resolve" onclick="resolveAlert(${alert.id})" title="Resolver" style="padding: 4px 8px;">
+              <i class="fas fa-check"></i>
+            </button>
+            <button class="btn-dismiss" onclick="dismissAlert(${alert.id})" title="Descartar" style="padding: 4px 8px;">
+              <i class="fas fa-times"></i>
+            </button>
+          ` : `
+            <span class="badge-resuelto" style="font-size: 0.7em;">${alert.estado.toUpperCase()}</span>
+          `}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function getAlertIcon(type) {
+  switch (type) {
+    case 'STOCK': return 'fa-exclamation-triangle';
+    case 'CADUCIDAD': return 'fa-clock';
+    case 'SISTEMA': return 'fa-cog';
+    default: return 'fa-info-circle';
+  }
+}
+
+/**
+ * Renderizar Alertas en Dashboard
+ */
+function renderDashboardAlerts(alertas) {
+  const container = document.getElementById('dashboardAlerts');
+  if (!container) return;
+
+  if (!alertas || alertas.length === 0) {
+    container.innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">No hay alertas recientes</div>';
+    return;
+  }
+
+  container.innerHTML = alertas.map(alert => {
+    const priorityClass = `priority-${alert.prioridad.toLowerCase()}`;
+    const statusClass = alert.estado === 'Resuelto' ? 'status-resuelto' : '';
+    const icon = getAlertIcon(alert.tipo);
+
+    // Simplified card for dashboard
+    return `
+      <div class="alert-card ${priorityClass} ${statusClass}" style="padding: 15px; margin-bottom: 10px;">
+        <div class="alert-icon-wrapper" style="width: 40px; height: 40px; font-size: 1em; margin-right: 15px;">
+          <i class="fas ${icon}"></i>
+        </div>
+        <div class="alert-content">
+          <div class="alert-title" style="font-size: 1em;">${alert.titulo}</div>
+          <div class="alert-message" style="font-size: 0.9em; margin-bottom: 4px;">${alert.mensaje}</div>
+          <div class="alert-meta" style="font-size: 0.75em;">
+            <span>${formatDateTime(alert.fecha)}</span>
+          </div>
+        </div>
+        <div class="alert-actions">
+           ${alert.estado === 'Pendiente' ? `
+            <button class="btn-resolve" onclick="resolveAlert(${alert.id})" title="Resolver" style="padding: 4px 8px;">
+              <i class="fas fa-check"></i>
+            </button>
+            <button class="btn-dismiss" onclick="dismissAlert(${alert.id})" title="Descartar" style="padding: 4px 8px;">
+              <i class="fas fa-times"></i>
+            </button>
+          ` : `
+            <span class="badge-resuelto" style="font-size: 0.7em;">${alert.estado.toUpperCase()}</span>
+          `}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+async function resolveAlert(id) {
+  try {
+    const result = await apiCall(`/alertas/${id}`, 'PUT', { estado: 'Resuelto' });
+    if (result.success) {
+      showToast('Alerta marcada como resuelta', 'success');
+      loadAlertas(); // Reload to refresh list
+    }
+  } catch (error) {
+    showToast('Error actualizando alerta', 'error');
+  }
+}
+
+/**
+ * Descartar Alerta
+ */
+async function dismissAlert(id) {
+  if (!confirm('¿Estás seguro de descartar esta alerta?')) return;
+  try {
+    const result = await apiCall(`/alertas/${id}`, 'PUT', { estado: 'Descartado' });
+    if (result.success) {
+      showToast('Alerta descartada', 'success');
+      loadAlertas();
+    }
+  } catch (error) {
+    showToast('Error actualizando alerta', 'error');
+  }
+}
+
+
+
+// Bind Clear if exists, or you can add button in HTML if missing
+// But user only asked to make filters work, assuming HTML elements exist
+const btnClearLotesRef = document.querySelector('button[onclick="clearFilters()"]');
+if (btnClearLotesRef) {
+  btnClearLotesRef.onclick = function (e) {
+    e.preventDefault();
+    clearLotesFilters();
+  };
+}

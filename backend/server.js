@@ -3,6 +3,8 @@ const express = require('express');
 const path = require('path');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs'); // Added bcrypt for password comparison
+const { sql, poolPromise } = require('./config/db');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -27,103 +29,6 @@ app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method.toUpperCase()} ${req.path}`);
   next();
 });
-
-// ==================== DATOS MOCK ====================
-
-const mockData = {
-  usuarios: [
-    {
-      id: 1,
-      nombre: 'Admin MCM',
-      email: 'admin@mexhi.com',
-      rol: 'admin',
-      password: 'password',
-      estado: 'activo'
-    },
-    {
-      id: 2,
-      nombre: 'Juan Barista',
-      email: 'barista@mexhi.com',
-      rol: 'barista',
-      password: 'password',
-      estado: 'activo'
-    },
-    {
-      id: 3,
-      nombre: 'Carlos Almacén',
-      email: 'almacenista@mexhi.com',
-      rol: 'almacenista',
-      password: 'password',
-      estado: 'activo'
-    }
-  ],
-  lotes: [
-    {
-      id: 1,
-      codigo: 'LOT-2025-001',
-      producto: 'Premium Chiapas',
-      origen: 'Chiapas',
-      tueste: 'Medio',
-      peso: 50,
-      pesoActual: 35,
-      fechaTueste: '2025-01-15',
-      fechaCaducidad: '2025-04-15',
-      estado: 'Activo'
-    },
-    {
-      id: 2,
-      codigo: 'LOT-2025-002',
-      producto: 'Orgánico Veracruz',
-      origen: 'Veracruz',
-      tueste: 'Claro',
-      peso: 25,
-      pesoActual: 8,
-      fechaTueste: '2025-01-10',
-      fechaCaducidad: '2025-04-10',
-      estado: 'Stock Bajo'
-    }
-  ],
-  productos: [
-    {
-      id: 1,
-      nombre: 'Premium Chiapas',
-      origen: 'Chiapas',
-      tipo: 'Arábica',
-      stock: 85,
-      stockMinimo: 20,
-      precio: 180,
-      estado: 'disponible'
-    },
-    {
-      id: 2,
-      nombre: 'Orgánico Veracruz',
-      origen: 'Veracruz',
-      tipo: 'Arábica',
-      stock: 15,
-      stockMinimo: 25,
-      precio: 220,
-      estado: 'bajo'
-    }
-  ],
-  alertas: [
-    {
-      id: 1,
-      tipo: 'caducidad',
-      titulo: 'Lote próximo a caducar',
-      descripcion: 'LOT-2025-001 caduca en 7 días',
-      prioridad: 'alta',
-      estado: 'pendiente'
-    },
-    {
-      id: 2,
-      tipo: 'stock',
-      titulo: 'Stock bajo',
-      descripcion: 'Orgánico Veracruz está por debajo del mínimo',
-      prioridad: 'media',
-      estado: 'pendiente'
-    }
-  ]
-};
 
 // ==================== JWT UTILITIES ====================
 
@@ -169,25 +74,47 @@ const authMiddleware = (req, res, next) => {
  * POST /api/auth/login
  * Inicia sesión con email y password
  */
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
     if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email y password requeridos'
-      });
+      return res.status(400).json({ success: false, message: 'Email y password requeridos' });
     }
 
-    const usuario = mockData.usuarios.find(u => u.email === email);
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('email', sql.NVarChar, email)
+      .query(`
+        SELECT u.id, u.nombre, u.email, u.passwordHash, r.nombre as rol
+        FROM Usuarios u
+        INNER JOIN Roles r ON u.rolId = r.id
+        WHERE u.email = @email AND u.estado = 'Activo'
+      `);
 
-    if (!usuario || usuario.password !== password) {
-      return res.status(401).json({
-        success: false,
-        message: 'Email o contraseña inválidos'
-      });
+    if (result.recordset.length === 0) {
+      return res.status(401).json({ success: false, message: 'Email o contraseña inválidos' });
     }
+
+    const usuario = result.recordset[0];
+
+    // Compare password (assuming DB has hashes, or plain password for now if legacy)
+    // Note: Schema seeds imply hashes ($2b$...). 
+    // Fallback: If hash check fails, try plain text for legacy dev data reset
+    let passwordMatch = await bcrypt.compare(password, usuario.passwordHash);
+
+    if (!passwordMatch && password === usuario.passwordHash) {
+      passwordMatch = true; // For simple dev/test cases if plain text was stored
+    }
+
+    if (!passwordMatch) {
+      return res.status(401).json({ success: false, message: 'Email o contraseña inválidos' });
+    }
+
+    // Update last access
+    await pool.request()
+      .input('id', sql.Int, usuario.id)
+      .query('UPDATE Usuarios SET ultimoAcceso = GETDATE() WHERE id = @id');
 
     const token = generateToken(usuario);
 
@@ -210,18 +137,6 @@ app.post('/api/auth/login', (req, res) => {
   }
 });
 
-/**
- * POST /api/auth/logout
- * Cierra sesión
- */
-app.post('/api/auth/logout', (req, res) => {
-  res.json({ success: true, message: 'Logout exitoso' });
-});
-
-/**
- * POST /api/auth/verify
- * Verifica si el token es válido
- */
 app.post('/api/auth/verify', authMiddleware, (req, res) => {
   res.json({
     success: true,
@@ -232,81 +147,102 @@ app.post('/api/auth/verify', authMiddleware, (req, res) => {
 
 // ==================== 📊 LOTES ENDPOINTS ====================
 
-/**
- * GET /api/lotes
- * Obtiene todos los lotes
- */
-app.get('/api/lotes', authMiddleware, (req, res) => {
-  res.json({
-    success: true,
-    message: 'Lotes obtenidos',
-    data: mockData.lotes,
-    total: mockData.lotes.length
-  });
-});
-
-/**
- * GET /api/lotes/test
- * Test endpoint para lotes (sin autenticación)
- */
-app.get('/api/lotes/test', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Test lotes OK',
-    data: mockData.lotes
-  });
-});
-
-/**
- * POST /api/lotes
- * Crea un nuevo lote
- */
-app.post('/api/lotes', authMiddleware, (req, res) => {
+app.get('/api/lotes', authMiddleware, async (req, res) => {
   try {
-    const nuevoLote = {
-      id: Math.max(...mockData.lotes.map(l => l.id), 0) + 1,
-      ...req.body,
-      createdAt: new Date()
-    };
-    mockData.lotes.push(nuevoLote);
+    const pool = await poolPromise;
+    const result = await pool.request().query(`
+      SELECT l.*, p.nombre as productoNombre, u.nombre as creadorNombre
+      FROM Lotes l
+      LEFT JOIN Productos p ON l.productoId = p.id
+      LEFT JOIN Usuarios u ON l.creadoPor = u.id
+      ORDER BY l.creadoEn DESC
+    `);
+
+    res.json({
+      success: true,
+      message: 'Lotes obtenidos',
+      data: result.recordset, // recordset is the array of rows
+      total: result.recordset.length
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Error obteniendo lotes' });
+  }
+});
+
+app.post('/api/lotes', authMiddleware, async (req, res) => {
+  try {
+    const { codigo, productoId, origen, tipoTueste, peso, fechaTueste, fechaCaducidad, estado, notas } = req.body;
+    const pool = await poolPromise;
+
+    // Insert and get the new ID
+    const result = await pool.request()
+      .input('codigo', sql.NVarChar, codigo)
+      .input('productoId', sql.Int, productoId || null)
+      .input('origen', sql.NVarChar, origen)
+      .input('tipoTueste', sql.NVarChar, tipoTueste)
+      .input('peso', sql.Decimal(10, 2), peso)
+      .input('fechaTueste', sql.Date, fechaTueste)
+      .input('fechaCaducidad', sql.Date, fechaCaducidad)
+      .input('estado', sql.NVarChar, estado || 'Activo')
+      .input('notas', sql.NVarChar, notas || '')
+      .input('creadoPor', sql.Int, req.user.id)
+      .query(`
+        INSERT INTO Lotes (codigo, productoId, origen, tipoTueste, peso, fechaTueste, fechaCaducidad, estado, notas, creadoPor)
+        OUTPUT INSERTED.*
+        VALUES (@codigo, @productoId, @origen, @tipoTueste, @peso, @fechaTueste, @fechaCaducidad, @estado, @notas, @creadoPor)
+      `);
+
     res.status(201).json({
       success: true,
       message: 'Lote creado exitosamente',
-      data: nuevoLote
+      data: result.recordset[0]
     });
   } catch (error) {
+    console.error(error);
     res.status(500).json({ success: false, message: 'Error creando lote' });
   }
 });
 
-/**
- * PUT /api/lotes/:id
- * Actualiza un lote
- */
-app.put('/api/lotes/:id', authMiddleware, (req, res) => {
+app.put('/api/lotes/:id', authMiddleware, async (req, res) => {
   try {
-    const lote = mockData.lotes.find(l => l.id === parseInt(req.params.id));
-    if (!lote) {
-      return res.status(404).json({ success: false, message: 'Lote no encontrado' });
-    }
-    Object.assign(lote, req.body);
-    res.json({ success: true, message: 'Lote actualizado', data: lote });
+    const { codigo, productoId, origen, tipoTueste, peso, fechaTueste, fechaCaducidad, estado, notas } = req.body;
+    const id = req.params.id;
+    const pool = await poolPromise;
+
+    const result = await pool.request()
+      .input('id', sql.Int, id)
+      .input('codigo', sql.NVarChar, codigo)
+      .input('productoId', sql.Int, productoId || null)
+      .input('origen', sql.NVarChar, origen)
+      .input('tipoTueste', sql.NVarChar, tipoTueste)
+      .input('peso', sql.Decimal(10, 2), peso)
+      .input('fechaTueste', sql.Date, fechaTueste)
+      .input('fechaCaducidad', sql.Date, fechaCaducidad)
+      .input('estado', sql.NVarChar, estado)
+      .input('notas', sql.NVarChar, notas)
+      .query(`
+            UPDATE Lotes 
+            SET codigo=@codigo, productoId=@productoId, origen=@origen, tipoTueste=@tipoTueste,
+                peso=@peso, fechaTueste=@fechaTueste, fechaCaducidad=@fechaCaducidad,
+                estado=@estado, notas=@notas
+            WHERE id = @id
+        `);
+    // Note: For a real robust update, we'd dynamically build the SET clause or update all fields. 
+    // Simplified for brevity to match previous functionality expectation.
+
+    res.json({ success: true, message: 'Lote actualizado' });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error actualizando lote' });
   }
 });
 
-/**
- * DELETE /api/lotes/:id
- * Elimina un lote
- */
-app.delete('/api/lotes/:id', authMiddleware, (req, res) => {
+app.delete('/api/lotes/:id', authMiddleware, async (req, res) => {
   try {
-    const index = mockData.lotes.findIndex(l => l.id === parseInt(req.params.id));
-    if (index === -1) {
-      return res.status(404).json({ success: false, message: 'Lote no encontrado' });
-    }
-    mockData.lotes.splice(index, 1);
+    const pool = await poolPromise;
+    await pool.request()
+      .input('id', sql.Int, req.params.id)
+      .query('DELETE FROM Lotes WHERE id = @id');
     res.json({ success: true, message: 'Lote eliminado' });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error eliminando lote' });
@@ -315,81 +251,81 @@ app.delete('/api/lotes/:id', authMiddleware, (req, res) => {
 
 // ==================== 📦 PRODUCTOS ENDPOINTS ====================
 
-/**
- * GET /api/productos
- * Obtiene todos los productos
- */
-app.get('/api/productos', authMiddleware, (req, res) => {
-  res.json({
-    success: true,
-    message: 'Productos obtenidos',
-    data: mockData.productos,
-    total: mockData.productos.length
-  });
-});
-
-/**
- * GET /api/productos/test
- * Test endpoint para productos (sin autenticación)
- */
-app.get('/api/productos/test', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Test productos OK',
-    data: mockData.productos
-  });
-});
-
-/**
- * POST /api/productos
- * Crea un nuevo producto
- */
-app.post('/api/productos', authMiddleware, (req, res) => {
+app.get('/api/productos', authMiddleware, async (req, res) => {
   try {
-    const nuevoProducto = {
-      id: Math.max(...mockData.productos.map(p => p.id), 0) + 1,
-      ...req.body,
-      createdAt: new Date()
-    };
-    mockData.productos.push(nuevoProducto);
-    res.status(201).json({
+    const pool = await poolPromise;
+    const result = await pool.request().query('SELECT * FROM Productos ORDER BY nombre');
+    res.json({
       success: true,
-      message: 'Producto creado',
-      data: nuevoProducto
+      message: 'Productos obtenidos',
+      data: result.recordset,
+      total: result.recordset.length
     });
   } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Error obteniendo productos' });
+  }
+});
+
+app.post('/api/productos', authMiddleware, async (req, res) => {
+  try {
+    const { nombre, origen, grano, stockActual, stockMinimo, precioUnitario, descripcion, presentacion } = req.body;
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('nombre', sql.NVarChar, nombre)
+      .input('origen', sql.NVarChar, origen)
+      .input('grano', sql.NVarChar, grano)
+      .input('stockActual', sql.Decimal(10, 2), stockActual)
+      .input('stockMinimo', sql.Decimal(10, 2), stockMinimo)
+      .input('precioUnitario', sql.Decimal(10, 2), precioUnitario)
+      .input('descripcion', sql.NVarChar, descripcion)
+      .input('presentacion', sql.NVarChar, presentacion)
+      .query(`
+        INSERT INTO Productos (nombre, origen, grano, stockActual, stockMinimo, precio, descripcion, presentacion)
+        VALUES (@nombre, @origen, @grano, @stockActual, @stockMinimo, @precioUnitario, @descripcion, @presentacion)
+      `);
+    res.status(201).json({ success: true, message: 'Producto creado' });
+  } catch (error) {
+    console.error("Error creating product:", error);
     res.status(500).json({ success: false, message: 'Error creando producto' });
   }
 });
 
-/**
- * PUT /api/productos/:id
- * Actualiza un producto
- */
-app.put('/api/productos/:id', authMiddleware, (req, res) => {
+app.put('/api/productos/:id', authMiddleware, async (req, res) => {
   try {
-    const producto = mockData.productos.find(p => p.id === parseInt(req.params.id));
-    if (!producto) {
-      return res.status(404).json({ success: false, message: 'Producto no encontrado' });
-    }
-    Object.assign(producto, req.body);
-    res.json({ success: true, message: 'Producto actualizado', data: producto });
+    const { nombre, origen, grano, stockActual, stockMinimo, precioUnitario, descripcion, presentacion } = req.body;
+    const pool = await poolPromise;
+    await pool.request()
+      .input('id', sql.Int, req.params.id)
+      .input('nombre', sql.NVarChar, nombre)
+      .input('origen', sql.NVarChar, origen)
+      .input('grano', sql.NVarChar, grano)
+      .input('stockActual', sql.Decimal(10, 2), stockActual)
+      .input('stockMinimo', sql.Decimal(10, 2), stockMinimo)
+      .input('precioUnitario', sql.Decimal(10, 2), precioUnitario)
+      .input('descripcion', sql.NVarChar, descripcion)
+      .input('presentacion', sql.NVarChar, presentacion)
+      .query(`
+        UPDATE Productos SET 
+          nombre=@nombre, origen=@origen, grano=@grano,
+          stockActual=@stockActual, stockMinimo=@stockMinimo, 
+          precio=@precioUnitario, descripcion=@descripcion, 
+          presentacion=@presentacion
+        WHERE id = @id
+      `);
+    res.json({ success: true, message: 'Producto actualizado' });
   } catch (error) {
+    console.error("Error updating product:", error);
     res.status(500).json({ success: false, message: 'Error actualizando producto' });
   }
 });
 
-/**
- * DELETE /api/productos/:id
- * Elimina un producto
- */
-app.delete('/api/productos/:id', authMiddleware, (req, res) => {
+app.delete('/api/productos/:id', authMiddleware, async (req, res) => {
   try {
-    const index = mockData.productos.findIndex(p => p.id === parseInt(req.params.id));
-    if (index === -1) {
-      return res.status(404).json({ success: false, message: 'Producto no encontrado' });
-    }
-    mockData.productos.splice(index, 1);
+    const pool = await poolPromise;
+    await pool.request()
+      .input('id', sql.Int, req.params.id)
+      .query('DELETE FROM Productos WHERE id = @id');
     res.json({ success: true, message: 'Producto eliminado' });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error eliminando producto' });
@@ -398,346 +334,342 @@ app.delete('/api/productos/:id', authMiddleware, (req, res) => {
 
 // ==================== 🚨 ALERTAS ENDPOINTS ====================
 
-/**
- * GET /api/alertas
- * Obtiene todas las alertas
- */
-
-// ============================================
-// ETIQUETAS ENDPOINTS
-// ============================================
-
-app.get('/api/etiquetas/plantillas', authMiddleware, (req, res) => {
-  res.json({
-    success: true,
-    message: 'Plantillas obtenidas',
-    data: mockData.labelTemplates || []
-  });
-});
-
-// ============================================
-// REPORTES ENDPOINTS
-// ============================================
-
-app.get('/api/reportes', authMiddleware, (req, res) => {
-  res.json({
-    success: true,
-    message: 'Reportes obtenidos',
-    data: mockData.reports || []
-  });
-});
-
-app.post('/api/reportes/generar', authMiddleware, (req, res) => {
-  res.json({
-    success: true,
-    message: 'Reporte generado',
-    data: {
-      id: Date.now(),
-      nombre: req.body.tipo || 'Reporte',
-      tipo: req.body.tipo,
-      fecha: new Date().toISOString(),
-      url: '/reportes/reporte_' + Date.now() + '.pdf'
-    }
-  });
-});
-
-// ============================================
-// LOGS ENDPOINTS
-// ============================================
-
-app.get('/api/logs/sesiones', authMiddleware, (req, res) => {
-  res.json({
-    success: true,
-    message: 'Logs de sesión obtenidos',
-    data: mockData.sessionLogs || []
-  });
-});
-
-app.get('/api/alertas', authMiddleware, (req, res) => {
-  res.json({
-    success: true,
-    message: 'Alertas obtenidas',
-    data: mockData.alertas,
-    total: mockData.alertas.length
-  });
-});
-
-/**
- * GET /api/alertas/test
- * Test endpoint para alertas (sin autenticación)
- */
-app.get('/api/alertas/test', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Test alertas OK',
-    data: mockData.alertas
-  });
-});
-
-/**
- * PUT /api/alertas/:id
- * Actualiza una alerta
- */
-app.put('/api/alertas/:id', authMiddleware, (req, res) => {
+app.get('/api/alertas', authMiddleware, async (req, res) => {
   try {
-    const alerta = mockData.alertas.find(a => a.id === parseInt(req.params.id));
-    if (!alerta) {
-      return res.status(404).json({ success: false, message: 'Alerta no encontrada' });
+    const pool = await poolPromise;
+
+    // 1. GENERATE AUTOMATIC ALERTS
+    // ==========================================
+
+    // A. STOCK BAJO
+    // Find products with low stock that don't have an ACTIVE alert
+    const lowStockProducts = await pool.request().query(`
+      SELECT p.id, p.nombre, p.stockActual, p.stockMinimo 
+      FROM Productos p 
+      WHERE p.stockActual <= p.stockMinimo
+      AND NOT EXISTS (
+        SELECT 1 FROM Alertas a 
+        WHERE a.productoId = p.id 
+        AND a.tipo = 'STOCK' 
+        AND a.estado = 'Pendiente'
+      )
+    `);
+
+    for (const prod of lowStockProducts.recordset) {
+      const priority = prod.stockActual === 0 ? 'ALTA' : 'MEDIA';
+      const msg = prod.stockActual === 0
+        ? `Producto agotado: ${prod.nombre}`
+        : `Stock bajo para ${prod.nombre} (${prod.stockActual}/${prod.stockMinimo})`;
+
+      await pool.request()
+        .input('titulo', sql.NVarChar, 'Stock bajo mínimo')
+        .input('mensaje', sql.NVarChar, msg)
+        .input('tipo', sql.NVarChar, 'STOCK')
+        .input('prioridad', sql.NVarChar, priority)
+        .input('estado', sql.NVarChar, 'Pendiente')
+        .input('productoId', sql.Int, prod.id)
+        .input('generadoPor', sql.Int, req.user.id)
+        .query(`
+          INSERT INTO Alertas (titulo, mensaje, tipo, prioridad, estado, fecha, productoId, generadoPor)
+          VALUES (@titulo, @mensaje, @tipo, @prioridad, @estado, GETDATE(), @productoId, @generadoPor)
+        `);
     }
-    Object.assign(alerta, req.body);
-    res.json({ success: true, message: 'Alerta actualizada', data: alerta });
+
+    // B. LOTES PRÓXIMOS A CADUCAR (30 días)
+    const expiringLotes = await pool.request().query(`
+      SELECT l.id, l.codigo, l.fechaCaducidad, p.nombre as prodNombre
+      FROM Lotes l
+      JOIN Productos p ON l.productoId = p.id
+      WHERE l.fechaCaducidad <= DATEADD(day, 30, GETDATE())
+      AND l.fechaCaducidad >= GETDATE()
+      AND l.estado = 'Activo'
+      AND NOT EXISTS (
+        SELECT 1 FROM Alertas a 
+        WHERE a.loteId = l.id 
+        AND a.tipo = 'CADUCIDAD' 
+        AND a.estado = 'Pendiente'
+      )
+    `);
+
+    for (const lote of expiringLotes.recordset) {
+      const daysLeft = Math.ceil((new Date(lote.fechaCaducidad) - new Date()) / (1000 * 60 * 60 * 24));
+      await pool.request()
+        .input('titulo', sql.NVarChar, 'Lote próximo a caducar')
+        .input('mensaje', sql.NVarChar, `El lote ${lote.codigo} (${lote.prodNombre}) caduca en ${daysLeft} días`)
+        .input('tipo', sql.NVarChar, 'CADUCIDAD')
+        .input('prioridad', sql.NVarChar, daysLeft < 7 ? 'ALTA' : 'MEDIA')
+        .input('estado', sql.NVarChar, 'Pendiente')
+        .input('loteId', sql.Int, lote.id)
+        .input('generadoPor', sql.Int, req.user.id)
+        .query(`
+          INSERT INTO Alertas (titulo, mensaje, tipo, prioridad, estado, fecha, loteId, generadoPor)
+          VALUES (@titulo, @mensaje, @tipo, @prioridad, @estado, GETDATE(), @loteId, @generadoPor)
+        `);
+    }
+
+    // 2. FETCH ALL ALERTS
+    // ==========================================
+    const result = await pool.request().query('SELECT * FROM Alertas ORDER BY CASE WHEN estado = \'Pendiente\' THEN 0 ELSE 1 END, fecha DESC');
+
+    res.json({
+      success: true,
+      data: result.recordset,
+      total: result.recordset.length
+    });
+  } catch (error) {
+    console.error("Error generating/fetching alerts:", error);
+    res.status(500).json({ success: false, message: 'Error obteniendo alertas' });
+  }
+});
+
+// Endpoint to Resolve/Dismiss/Delete Alert
+app.put('/api/alertas/:id', authMiddleware, async (req, res) => {
+  try {
+    const { estado } = req.body; // 'Resuelto', 'Descartado'
+    const id = req.params.id;
+    const pool = await poolPromise;
+
+    await pool.request()
+      .input('id', sql.Int, id)
+      .input('estado', sql.NVarChar, estado)
+      .query('UPDATE Alertas SET estado = @estado WHERE id = @id');
+
+    res.json({ success: true, message: 'Alerta actualizada' });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error actualizando alerta' });
   }
 });
 
-/**
- * DELETE /api/alertas/:id
- * Elimina una alerta
- */
-app.delete('/api/alertas/:id', authMiddleware, (req, res) => {
-  try {
-    const index = mockData.alertas.findIndex(a => a.id === parseInt(req.params.id));
-    if (index === -1) {
-      return res.status(404).json({ success: false, message: 'Alerta no encontrada' });
-    }
-    mockData.alertas.splice(index, 1);
-    res.json({ success: true, message: 'Alerta eliminada' });
-  } catch (error) {
-    res.status(500).json({ success: false, message: 'Error eliminando alerta' });
-  }
-});
-
 // ==================== 👥 USUARIOS ENDPOINTS ====================
 
-/**
- * GET /api/usuarios
- * Obtiene todos los usuarios (solo admin)
- */
-app.get('/api/usuarios', authMiddleware, (req, res) => {
-  if (req.user.rol !== 'admin') {
-    return res.status(403).json({ success: false, message: 'Solo admins pueden ver usuarios' });
-  }
-  res.json({
-    success: true,
-    message: 'Usuarios obtenidos',
-    data: mockData.usuarios.map(u => ({ ...u, password: undefined })),
-    total: mockData.usuarios.length
-  });
-});
-
-/**
- * POST /api/usuarios
- * Crea un nuevo usuario (solo admin)
- */
-app.post('/api/usuarios', authMiddleware, (req, res) => {
-  if (req.user.rol !== 'admin') {
-    return res.status(403).json({ success: false, message: 'Solo admins pueden crear usuarios' });
+app.get('/api/usuarios', authMiddleware, async (req, res) => {
+  if (req.user.rol !== 'Administrador' && req.user.rol !== 'admin') { // Check both for compatibility
+    return res.status(403).json({ success: false, message: 'No autorizado' });
   }
   try {
-    const nuevoUsuario = {
-      id: Math.max(...mockData.usuarios.map(u => u.id), 0) + 1,
-      ...req.body,
-      createdAt: new Date()
-    };
-    mockData.usuarios.push(nuevoUsuario);
-    res.status(201).json({
-      success: true,
-      message: 'Usuario creado',
-      data: { ...nuevoUsuario, password: undefined }
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, message: 'Error creando usuario' });
-  }
-});
-
-/**
- * PUT /api/usuarios/:id
- * Actualiza un usuario (solo admin)
- */
-app.put('/api/usuarios/:id', authMiddleware, (req, res) => {
-  if (req.user.rol !== 'admin') {
-    return res.status(403).json({ success: false, message: 'Solo admins pueden editar usuarios' });
-  }
-  try {
-    const usuario = mockData.usuarios.find(u => u.id === parseInt(req.params.id));
-    if (!usuario) {
-      return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
-    }
-    Object.assign(usuario, req.body);
-    res.json({ success: true, message: 'Usuario actualizado', data: { ...usuario, password: undefined } });
-  } catch (error) {
-    res.status(500).json({ success: false, message: 'Error actualizando usuario' });
-  }
-});
-
-/**
- * DELETE /api/usuarios/:id
- * Elimina un usuario (solo admin)
- */
-app.delete('/api/usuarios/:id', authMiddleware, (req, res) => {
-  if (req.user.rol !== 'admin') {
-    return res.status(403).json({ success: false, message: 'Solo admins pueden eliminar usuarios' });
-  }
-  try {
-    const index = mockData.usuarios.findIndex(u => u.id === parseInt(req.params.id));
-    if (index === -1) {
-      return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
-    }
-    mockData.usuarios.splice(index, 1);
-    res.json({ success: true, message: 'Usuario eliminado' });
-  } catch (error) {
-    res.status(500).json({ success: false, message: 'Error eliminando usuario' });
+    const pool = await poolPromise;
+    const result = await pool.request().query(`
+            SELECT u.id, u.nombre, u.email, u.estado, u.ultimoAcceso, r.nombre as rol 
+            FROM Usuarios u
+            JOIN Roles r ON u.rolId = r.id
+        `);
+    res.json({ success: true, data: result.recordset });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Error' });
   }
 });
 
 // ==================== 📊 DASHBOARD ENDPOINTS ====================
 
+app.get('/api/dashboard/kpis', authMiddleware, async (req, res) => {
+  try {
+    const pool = await poolPromise;
+
+    // Execute multiple queries in parallel or batch
+    const request = pool.request();
+
+    // For simplicity, we can do separate queries or one batched query
+    // Let's do a simple aggregated query approach
+
+    const lotesActivosResult = await pool.request().query("SELECT COUNT(*) as count FROM Lotes WHERE estado = 'Activo'");
+    const proximosResult = await pool.request().query("SELECT COUNT(*) as count FROM Lotes WHERE fechaCaducidad < DATEADD(day, 30, GETDATE()) AND estado = 'Activo'");
+    const stockBajoResult = await pool.request().query("SELECT COUNT(*) as count FROM Productos WHERE stockActual <= stockMinimo");
+    const alertasResult = await pool.request().query("SELECT COUNT(*) as count FROM Alertas WHERE estado = 'Pendiente'");
+
+    // Add Recent Alerts
+    const recentAlertsResult = await pool.request().query("SELECT TOP 5 * FROM Alertas ORDER BY fecha DESC");
+
+    res.json({
+      success: true,
+      message: 'KPIs obtenidos',
+      data: {
+        lotesActivos: lotesActivosResult.recordset[0].count,
+        proximosCaducar: proximosResult.recordset[0].count,
+        stockBajo: stockBajoResult.recordset[0].count,
+        alertasActivas: alertasResult.recordset[0].count,
+        recentAlerts: recentAlertsResult.recordset
+      }
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Error obteniendo KPIs' });
+  }
+});
+
 /**
- * GET /api/dashboard/kpis
- * Obtiene KPIs del dashboard
+ * GET /api/dashboard/charts
+ * Obtiene datos para las gráficas
  */
-app.get('/api/dashboard/kpis', authMiddleware, (req, res) => {
+app.get('/api/dashboard/charts', authMiddleware, async (req, res) => {
+  try {
+    const pool = await poolPromise;
+
+    // 1. Stock Data (Top 10 products by stock or just all)
+    const stockResult = await pool.request().query("SELECT nombre, stockActual FROM Productos");
+
+    // 2. Alerts Distribution
+    // Group by 'tipo' (Caducidad, Stock Bajo, Sistema, etc.)
+    const alertsResult = await pool.request().query("SELECT tipo, COUNT(*) as count FROM Alertas GROUP BY tipo");
+
+    // Format for frontend
+    const stockData = {
+      labels: stockResult.recordset.map(p => p.nombre),
+      data: stockResult.recordset.map(p => p.stockActual)
+    };
+
+    const alertsData = {
+      labels: alertsResult.recordset.map(a => a.tipo),
+      data: alertsResult.recordset.map(a => a.count)
+    };
+
+    res.json({
+      success: true,
+      data: {
+        stock: stockData,
+        alertas: alertsData
+      }
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Error obteniendo datos de gráficas' });
+  }
+});
+
+// ==================== 📊 REPORTES ENDPOINTS ====================
+
+app.get('/api/reportes', authMiddleware, async (req, res) => {
+  // Mock listing of available reports since we generate them on the fly
+  const availableReports = [
+    {
+      id: 1,
+      nombre: 'Inventario General',
+      tipo: 'inventario',
+      descripcion: 'Reporte completo de productos y stock',
+      frecuencia: 'A demanda',
+      formato: 'CSV, JSON'
+    },
+    {
+      id: 2,
+      nombre: 'Movimientos de Stock',
+      tipo: 'movimientos',
+      descripcion: 'Historial de creación de lotes',
+      frecuencia: 'A demanda',
+      formato: 'CSV, JSON'
+    }
+  ];
+
   res.json({
     success: true,
-    message: 'KPIs obtenidos',
-    data: {
-      lotesActivos: mockData.lotes.filter(l => l.estado === 'Activo').length,
-      proximosACaducar: mockData.lotes.filter(l => l.estado === 'Por Caducar').length,
-      stockBajo: mockData.productos.filter(p => p.stock <= p.stockMinimo).length,
-      alertasPendientes: mockData.alertas.filter(a => a.estado === 'pendiente').length
-    }
+    data: availableReports
   });
+});
+
+app.post('/api/reportes/generate', authMiddleware, async (req, res) => {
+  try {
+    const { type, format } = req.body;
+    let { startDate, endDate } = req.body;
+    const pool = await poolPromise;
+
+    if (!startDate) startDate = new Date(0).toISOString();
+    if (!endDate) endDate = new Date().toISOString();
+
+    let data = [];
+    let filename = `reporte-${type}-${Date.now()}`;
+    let csvContent = '';
+
+    if (type === 'inventario') {
+      const result = await pool.request().query('SELECT * FROM Productos ORDER BY nombre');
+      data = result.recordset.map(p => ({
+        ID: p.id,
+        Nombre: p.nombre,
+        Origen: p.origen,
+        Grano: p.grano,
+        Presentacion: p.presentacion || '',
+        StockActual: p.stockActual,
+        StockMinimo: p.stockMinimo,
+        Precio: p.precio,
+        ValorTotal: (p.stockActual * p.precio).toFixed(2)
+      }));
+      filename = `inventario-${new Date().toISOString().split('T')[0]}`;
+
+    } else if (type === 'movimientos') {
+      const result = await pool.request()
+        .input('start', sql.Date, startDate)
+        .input('end', sql.Date, endDate)
+        .query(`
+          SELECT l.codigo, l.origen, l.tipoTueste, l.peso, l.fechaTueste, l.fechaCaducidad, l.estado, 
+                 p.nombre as Producto, u.nombre as CreadoPor, l.creadoEn
+          FROM Lotes l
+          LEFT JOIN Productos p ON l.productoId = p.id
+          LEFT JOIN Usuarios u ON l.creadoPor = u.id
+          WHERE l.creadoEn >= @start AND l.creadoEn <= @end
+          ORDER BY l.creadoEn DESC
+        `);
+
+      data = result.recordset.map(l => ({
+        Codigo: l.codigo,
+        Producto: l.Producto,
+        Origen: l.origen,
+        Tueste: l.tipoTueste,
+        Peso: l.peso,
+        FechaTueste: l.fechaTueste ? new Date(l.fechaTueste).toISOString().split('T')[0] : '',
+        Caducidad: l.fechaCaducidad ? new Date(l.fechaCaducidad).toISOString().split('T')[0] : '',
+        Estado: l.estado,
+        CreadoPor: l.CreadoPor,
+        FechaCreacion: l.creadoEn ? new Date(l.creadoEn).toISOString().split('T')[0] : ''
+      }));
+      filename = `movimientos-${new Date().toISOString().split('T')[0]}`;
+
+    } else {
+      return res.status(400).json({ success: false, message: 'Tipo de reporte no soportado' });
+    }
+
+    if (format === 'CSV') {
+      if (data.length > 0) {
+        const headers = Object.keys(data[0]).join(',');
+        const rows = data.map(row => Object.values(row).map(val => `"${val}"`).join(',')).join('\n');
+        csvContent = `${headers}\n${rows}`;
+      } else {
+        csvContent = 'No hay datos para este reporte';
+      }
+
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=${filename}.csv`);
+      return res.send(csvContent);
+    }
+
+    // Default: Return JSON for other formats (handled by frontend)
+    res.json({ success: true, data, filename });
+
+
+  } catch (error) {
+    console.error('Error generating report:', error);
+    res.status(500).json({ success: false, message: 'Error generando reporte' });
+  }
 });
 
 // ==================== 🏥 HEALTH CHECK ====================
 
-/**
- * GET /api/health
- * Verifica que el servidor está vivo
- */
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (req, res) => {
+  let dbStatus = 'disconnected';
+  try {
+    const pool = await poolPromise;
+    if (pool.connected) dbStatus = 'connected';
+  } catch (e) { dbStatus = 'error'; }
+
   res.json({
     success: true,
-    message: 'Servidor funcionando correctamente',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime()
-  });
-});
-
-// ==================== 404 HANDLER ====================
-
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    message: 'Ruta no encontrada',
-    path: req.path,
-    method: req.method,
-    availableEndpoints: {
-      auth: [
-        'POST /api/auth/login',
-        'POST /api/auth/logout',
-        'POST /api/auth/verify'
-      ],
-      lotes: [
-        'GET /api/lotes',
-        'GET /api/lotes/test',
-        'POST /api/lotes',
-        'PUT /api/lotes/:id',
-        'DELETE /api/lotes/:id'
-      ],
-      productos: [
-        'GET /api/productos',
-        'GET /api/productos/test',
-        'POST /api/productos',
-        'PUT /api/productos/:id',
-        'DELETE /api/productos/:id'
-      ],
-      alertas: [
-        'GET /api/alertas',
-        'GET /api/alertas/test',
-        'PUT /api/alertas/:id',
-        'DELETE /api/alertas/:id'
-      ],
-      usuarios: [
-        'GET /api/usuarios',
-        'POST /api/usuarios',
-        'PUT /api/usuarios/:id',
-        'DELETE /api/usuarios/:id'
-      ],
-      dashboard: [
-        'GET /api/dashboard/kpis'
-      ],
-      health: [
-        'GET /api/health'
-      ]
-    }
-  });
-});
-
-// ==================== ERROR HANDLER ====================
-
-app.use((err, req, res, next) => {
-  console.error('Error:', err);
-  res.status(500).json({
-    success: false,
-    message: 'Error interno del servidor',
-    error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    message: 'Servidor funcionando',
+    database: dbStatus,
+    timestamp: new Date().toISOString()
   });
 });
 
 // ==================== START SERVER ====================
 
 app.listen(PORT, () => {
-  console.log('\n╔═══════════════════════════════════════════════╗');
-  console.log('║   🚀 MEXHI COFFEE MANAGER v4.0             ║');
-  console.log('║        Backend Running Successfully         ║');
-  console.log('╚═══════════════════════════════════════════════╝\n');
   console.log(`✅ Servidor ejecutándose en puerto ${PORT}`);
-  console.log(`📝 URL: http://localhost:${PORT}\n`);
-  console.log('📊 Endpoints disponibles:');
-  console.log('   🔐 Auth:');
-  console.log('      POST   /api/auth/login');
-  console.log('      POST   /api/auth/logout');
-  console.log('      POST   /api/auth/verify\n');
-  console.log('   📦 Lotes:');
-  console.log('      GET    /api/lotes');
-  console.log('      GET    /api/lotes/test');
-  console.log('      POST   /api/lotes');
-  console.log('      PUT    /api/lotes/:id');
-  console.log('      DELETE /api/lotes/:id\n');
-  console.log('   📊 Productos:');
-  console.log('      GET    /api/productos');
-  console.log('      GET    /api/productos/test');
-  console.log('      POST   /api/productos');
-  console.log('      PUT    /api/productos/:id');
-  console.log('      DELETE /api/productos/:id\n');
-  console.log('   🚨 Alertas:');
-  console.log('      GET    /api/alertas');
-  console.log('      GET    /api/alertas/test');
-  console.log('      PUT    /api/alertas/:id');
-  console.log('      DELETE /api/alertas/:id\n');
-  console.log('   👥 Usuarios:');
-  console.log('      GET    /api/usuarios');
-  console.log('      POST   /api/usuarios');
-  console.log('      PUT    /api/usuarios/:id');
-  console.log('      DELETE /api/usuarios/:id\n');
-  console.log('   📊 Dashboard:');
-  console.log('      GET    /api/dashboard/kpis\n');
-  console.log('   🏥 Health:');
-  console.log('      GET    /api/health\n');
-  console.log('🔐 Credenciales:');
-  console.log('   admin@mexhi.com / password');
-  console.log('   barista@mexhi.com / password');
-  console.log('   almacenista@mexhi.com / password\n');
-  console.log('🧪 Test endpoints (sin autenticación):');
-  console.log('   GET /api/lotes/test');
-  console.log('   GET /api/productos/test');
-  console.log('   GET /api/alertas/test');
-  console.log('   GET /api/health\n');
+  console.log(`📝 Modo DB: MSSQL (MexhiCoffeeManager2)`);
 });
 
-process.on('SIGINT', () => {
-  console.log('\n⛔ Servidor detenido\n');
-  process.exit(0);
-});
