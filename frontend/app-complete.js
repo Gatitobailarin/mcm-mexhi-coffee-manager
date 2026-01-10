@@ -61,10 +61,8 @@ document.addEventListener('DOMContentLoaded', async function () {
   // Verificar autenticación
   if (STATE.authToken) {
     console.log('✅ Sesión restaurada');
-    // Restaurar usuario global si es necesario
     window.mcm_token = STATE.authToken;
 
-    // Si tenemos usuario guardado, actualizar rol
     if (STATE.currentUser) {
       STATE.currentRole = STATE.currentUser.rol || 'admin';
     }
@@ -73,6 +71,12 @@ document.addEventListener('DOMContentLoaded', async function () {
     showView('dashboard');
   } else {
     showView('login');
+  }
+
+  // Logout Listener
+  const logoutBtn = document.getElementById('logoutBtn');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', handleLogout);
   }
 });
 
@@ -386,49 +390,8 @@ async function handleLogin(e) {
 // FUNCIÓN showDashboard
 // ============================================
 function showDashboard() {
-  try {
-    console.log('🎯 Mostrando dashboard...');
-
-    // 🔴 OCULTAR LOGIN - Buscar por la clase correcta
-    const loginView = document.querySelector('.login-view');
-    if (loginView) {
-      loginView.style.display = 'none';
-      loginView.style.visibility = 'hidden';
-      loginView.classList.add('hidden');
-      console.log('✅ Login ocultado');
-    }
-
-    // 🟢 MOSTRAR DASHBOARD
-    const mainApp = document.getElementById('mainApp') ||
-      document.querySelector('.main-app') ||
-      document.querySelector('.app-container') ||
-      document.querySelector('[data-view="app"]');
-
-    if (mainApp) {
-      mainApp.style.display = 'flex';
-      mainApp.style.visibility = 'visible';
-      mainApp.classList.remove('hidden');
-      console.log('✅ Dashboard visible');
-    }
-
-    // Mostrar nombre del usuario
-    const user = JSON.parse(localStorage.getItem('mcm_user') || '{}');
-    const userNameElement = document.querySelector('[data-user-name]') ||
-      document.querySelector('.user-name') ||
-      document.getElementById('userName');
-
-    if (userNameElement) {
-      userNameElement.textContent = user.nombre || user.email || 'Usuario';
-    }
-
-    // Cargar datos
-    loadDashboardData();
-
-    console.log('✅ Dashboard cargado correctamente');
-
-  } catch (error) {
-    console.error('❌ Error mostrando dashboard:', error);
-  }
+  // Delegate visibility management to showView
+  showView('dashboard');
 }
 
 
@@ -437,15 +400,32 @@ function showDashboard() {
  * Cerrar sesión
  */
 function handleLogout() {
-  if (confirm('¿Está seguro de cerrar sesión?')) {
+  showConfirm('¿Está seguro de cerrar sesión?', () => {
     STATE.authToken = null;
     STATE.currentUser = null;
-    localStorage.removeItem('mcm_auth_token');
+    window.mcm_token = null;
+    localStorage.removeItem('mcm_token');
+    localStorage.removeItem('mcm_user');
 
     showToast('Sesión cerrada', 'info');
-    showView('login');
+
+    // Explicitly toggle containers
+    const loginView = document.getElementById('login');
+    const mainApp = document.getElementById('mainApp');
+
+    if (loginView) {
+      loginView.classList.add('active');
+      loginView.classList.remove('hidden');
+      loginView.style.display = 'flex'; // Ensure flex layout
+    }
+
+    if (mainApp) {
+      mainApp.classList.add('hidden');
+      mainApp.style.display = 'none';
+    }
+
     document.getElementById('loginForm')?.reset();
-  }
+  });
 }
 
 // ======================== NAVEGACIÓN Y VISTAS ========================
@@ -454,8 +434,44 @@ function handleLogout() {
  * Cambiar vista principal
  */
 function showView(viewName) {
+  // SPECIAL HANDLING: If view is 'login', assume explicit logout/login flow
+  if (viewName === 'login') {
+    const loginView = document.getElementById('login');
+    const mainApp = document.getElementById('mainApp');
+    if (loginView) {
+      loginView.style.display = 'flex';
+      loginView.classList.remove('hidden');
+      loginView.classList.add('active');
+    }
+    if (mainApp) {
+      mainApp.style.display = 'none';
+      mainApp.classList.add('hidden');
+    }
+    return;
+  }
+
+  // ELSE assumption: We are inside the main app
+  const loginView = document.getElementById('login');
+  const mainApp = document.getElementById('mainApp');
+
+  if (loginView) {
+    loginView.style.display = 'none';
+    loginView.classList.add('hidden');
+    loginView.classList.remove('active');
+  }
+
+  if (mainApp) {
+    mainApp.style.display = 'flex'; // Restore main layout
+    mainApp.classList.remove('hidden');
+  }
+
   const views = document.querySelectorAll('.view, [data-view-content]');
-  views.forEach(view => view.classList.remove('active'));
+  views.forEach(view => {
+    // Don't hide login if we are just switching tabs, but we handled that above
+    if (!view.classList.contains('login-view')) {
+      view.classList.remove('active');
+    }
+  });
 
   const targetView = document.getElementById(viewName) ||
     document.querySelector(`[data-view-content="${viewName}"]`);
@@ -2704,29 +2720,42 @@ function addToPrintQueue() {
     return;
   }
 
-  const queue = document.getElementById('labelQueue');
-  const item = document.createElement('div');
-  item.className = 'queue-item';
-  item.innerHTML = `
-      <div class="queue-item-info">
-          <div><i class="fas fa-tag" style="color: #8D6E63; margin-right: 8px;"></i> <strong>${prod.nombre}</strong></div>
-          <div style="font-size: 0.85em; color: #666; margin-top: 4px;">
-              ${qty} etiquetas • ${template.name} (${template.size})
-          </div>
-      </div>
-      <div>
-          <span class="status-pending">Pendiente</span>
-          <button class="btn-icon delete" style="margin-left: 10px;" onclick="this.closest('.queue-item').remove()">
-              <i class="fas fa-times"></i>
-          </button>
-      </div>
-  `;
+  // Create print logic directly
+  const printWindow = window.open('', '_blank', 'width=600,height=600');
+  if (!printWindow) {
+    showToast('Permita popups para imprimir', 'warning');
+    return;
+  }
 
-  // Animación de entrada
-  item.style.animation = 'slideIn 0.3s ease-out';
+  const labelHTML = document.getElementById('labelPreview').innerHTML;
 
-  queue.prepend(item);
-  showToast(`Agregadas ${qty} etiquetas a la cola`, 'success');
+  printWindow.document.write(`
+      <html>
+      <head>
+          <title>Imprimir Etiquetas - Mexhi Coffee</title>
+          <style>
+              body { font-family: 'Arial', sans-serif; text-align: center; padding: 20px; }
+              .label-card { 
+                  border: 1px dashed #ccc; 
+                  padding: 10px; 
+                  margin: 10px auto; 
+                  width: 300px; 
+                  break-inside: avoid; 
+              }
+              @media print {
+                  .no-print { display: none; }
+              }
+          </style>
+      </head>
+      <body onload="setTimeout(() => { window.print(); window.close(); }, 500)">
+          <h2>Imprimiendo ${qty} Copias</h2>
+          ${Array(parseInt(qty)).fill(`<div class="label-card">${labelHTML}</div>`).join('')}
+      </body>
+      </html>
+  `);
+  printWindow.document.close();
+
+  showToast(`Enviando ${qty} etiquetas a imprimir...`, 'success');
 }
 
 // ======================== FILTROS PRODUCTOS ========================
