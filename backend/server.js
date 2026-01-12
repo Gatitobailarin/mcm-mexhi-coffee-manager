@@ -30,6 +30,65 @@ app.use((req, res, next) => {
   next();
 });
 
+// ==================== LOGGING UTILITIES ====================
+async function logActivity(usuarioId, email, action, status, req) {
+  try {
+    const pool = await poolPromise;
+    const ip = req.headers['x-forwarded-for'] || req.ip || req.connection.remoteAddress;
+    const userAgent = req.get('User-Agent');
+
+    await pool.request()
+      .input('usuarioId', sql.Int, usuarioId)
+      .input('email', sql.NVarChar, email)
+      .input('accion', sql.NVarChar, action)
+      .input('estado', sql.NVarChar, status)
+      .input('ip', sql.NVarChar, ip)
+      .input('navegador', sql.NVarChar, userAgent)
+      .query(`
+                IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ActivityLogs' AND xtype='U')
+                CREATE TABLE ActivityLogs (
+                    id INT IDENTITY(1,1) PRIMARY KEY,
+                    usuarioId INT NULL,
+                    email NVARCHAR(255),
+                    accion NVARCHAR(100),
+                    fecha DATETIME DEFAULT GETDATE(),
+                    ip NVARCHAR(50),
+                    navegador NVARCHAR(MAX),
+                    estado NVARCHAR(50)
+                )
+
+                INSERT INTO ActivityLogs (usuarioId, email, accion, fecha, ip, navegador, estado)
+                VALUES (@usuarioId, @email, @accion, GETDATE(), @ip, @navegador, @estado)
+            `);
+  } catch (err) {
+    console.error('Error logging activity:', err);
+  }
+}
+
+// Ensure ActivityLogs table exists
+(async () => {
+  try {
+    const pool = await poolPromise;
+    await pool.request().query(`
+            IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ActivityLogs' AND xtype='U')
+            CREATE TABLE ActivityLogs (
+                id INT IDENTITY(1,1) PRIMARY KEY,
+                usuarioId INT NULL,
+                email NVARCHAR(255),
+                accion NVARCHAR(100),
+                fecha DATETIME DEFAULT GETDATE(),
+                ip NVARCHAR(50),
+                navegador NVARCHAR(255),
+                estado NVARCHAR(50)
+            )
+        `);
+    console.log('✅ Tabla ActivityLogs verificada/creada');
+  } catch (error) {
+    console.error('❌ Error verificando tabla ActivityLogs:', error);
+  }
+})();
+
+
 // ==================== JWT UTILITIES ====================
 
 const generateToken = (usuario) => {
@@ -79,6 +138,7 @@ app.post('/api/auth/login', async (req, res) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
+      await logActivity(null, email || 'unknown', 'LOGIN', 'FALLO', req);
       return res.status(400).json({ success: false, message: 'Email y password requeridos' });
     }
 
@@ -93,6 +153,7 @@ app.post('/api/auth/login', async (req, res) => {
       `);
 
     if (result.recordset.length === 0) {
+      await logActivity(null, email, 'LOGIN', 'FALLO', req);
       return res.status(401).json({ success: false, message: 'Email o contraseña inválidos' });
     }
 
@@ -108,6 +169,7 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     if (!passwordMatch) {
+      await logActivity(usuario.id, usuario.email, 'LOGIN', 'FALLO', req);
       return res.status(401).json({ success: false, message: 'Email o contraseña inválidos' });
     }
 
@@ -115,6 +177,9 @@ app.post('/api/auth/login', async (req, res) => {
     await pool.request()
       .input('id', sql.Int, usuario.id)
       .query('UPDATE Usuarios SET ultimoAcceso = GETDATE() WHERE id = @id');
+
+    // SUCCESS LOG
+    await logActivity(usuario.id, usuario.email, 'LOGIN EXITOSO', 'EXITO', req);
 
     const token = generateToken(usuario);
 
@@ -143,6 +208,15 @@ app.post('/api/auth/verify', authMiddleware, (req, res) => {
     message: 'Token válido',
     data: { user: req.user }
   });
+});
+
+app.post('/api/auth/logout', authMiddleware, async (req, res) => {
+  try {
+    await logActivity(req.user.id, req.user.email, 'LOGOUT', 'EXITO', req);
+    res.json({ success: true, message: 'Sesión cerrada' });
+  } catch (e) {
+    res.status(500).json({ success: false });
+  }
 });
 
 // ==================== 📊 LOTES ENDPOINTS ====================
@@ -456,6 +530,50 @@ app.get('/api/usuarios', authMiddleware, async (req, res) => {
     res.json({ success: true, data: result.recordset });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Error' });
+  }
+});
+
+// ==================== 📜 LOGS ENDPOINTS ====================
+
+app.get('/api/logs', authMiddleware, async (req, res) => {
+  // Only Admin should see logs
+  if (req.user.rol !== 'Administrador' && req.user.rol !== 'admin') {
+    return res.status(403).json({ success: false, message: 'No autorizado' });
+  }
+
+  try {
+    const pool = await poolPromise;
+    let query = `
+            SELECT l.*, u.nombre as usuarioNombre 
+            FROM ActivityLogs l
+            LEFT JOIN Usuarios u ON l.usuarioId = u.id
+            WHERE 1=1
+        `;
+
+    // Filters
+    if (req.query.userId && req.query.userId !== 'all') {
+      query += ` AND l.usuarioId = @userId`;
+    }
+    if (req.query.date) {
+      query += ` AND CAST(l.fecha AS DATE) = @date`;
+    }
+
+    query += ` ORDER BY l.fecha DESC`;
+
+    const request = pool.request();
+    if (req.query.userId && req.query.userId !== 'all') request.input('userId', sql.Int, req.query.userId);
+    if (req.query.date) request.input('date', sql.Date, req.query.date);
+
+    const result = await request.query(query);
+
+    res.json({
+      success: true,
+      data: result.recordset
+    });
+
+  } catch (error) {
+    console.error('Error fetching logs:', error);
+    res.status(500).json({ success: false, message: 'Error recuperando logs' });
   }
 });
 

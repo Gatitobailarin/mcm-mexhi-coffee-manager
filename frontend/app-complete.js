@@ -360,6 +360,13 @@ async function handleLogin(e) {
     window.mcm_token = token;
     window.mcm_user = user;
 
+    // ✅ UPDATE STATE IMMEDIATELY
+    STATE.authToken = token;
+    STATE.currentUser = user;
+    STATE.currentRole = user.rol || 'guest';
+
+    console.log('✅ Role Updated:', STATE.currentRole);
+
     // Verificar que se guardó
     console.log('✅ Token guardado en localStorage:', localStorage.getItem('mcm_token'));
     console.log('✅ Token guardado en variable global:', window.mcm_token);
@@ -370,6 +377,9 @@ async function handleLogin(e) {
     // Limpiar formulario
     emailInput.value = '';
     passwordInput.value = '';
+
+    // ✅ Actualizar UI (Menú lateral)
+    updateRoleBasedUI();
 
     // ✅ NAVEGAR AL DASHBOARD DESPUÉS de guardar
     console.log('📊 Navegando a Dashboard...');
@@ -399,10 +409,26 @@ function showDashboard() {
 /**
  * Cerrar sesión
  */
+
+/**
+ * Cerrar sesión
+ */
 function handleLogout() {
-  showConfirm('¿Está seguro de cerrar sesión?', () => {
+  showConfirm('¿Está seguro de cerrar sesión?', async () => {
+    try {
+      // Attempt to log logout on server
+      const token = localStorage.getItem('mcm_token');
+      if (token) {
+        await fetch('http://localhost:4000/api/auth/logout', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+      }
+    } catch (e) { console.error('Logout log error', e); }
+
     STATE.authToken = null;
     STATE.currentUser = null;
+    STATE.currentRole = 'guest'; // Reset role
     window.mcm_token = null;
     localStorage.removeItem('mcm_token');
     localStorage.removeItem('mcm_user');
@@ -451,6 +477,18 @@ function showView(viewName) {
   }
 
   // ELSE assumption: We are inside the main app
+  // CHECK PERMISSIONS
+  if (!canAccessView(viewName)) {
+    console.warn(`⛔ Acceso denegado a ${viewName} para rol ${STATE.currentRole}`);
+    showToast('No tienes permisos para acceder a esta sección', 'error');
+    // If unauthorized, go to dashboard if allowed, else stay or logout?
+    // Defaulting to dashboard
+    if (viewName !== 'dashboard') {
+      showView('dashboard');
+    }
+    return;
+  }
+
   const loginView = document.getElementById('login');
   const mainApp = document.getElementById('mainApp');
 
@@ -906,29 +944,63 @@ function renderUsuariosTable(usuarios) {
 /**
  * Actualizar UI según rol
  */
+/**
+ * Actualizar UI según rol
+ */
 function updateRoleBasedUI() {
-  const role = STATE.currentRole;
+  const role = STATE.currentRole || 'guest';
+  const normRole = role.toLowerCase();
 
   // Actualizar nombre de usuario
   const userNameEl = document.getElementById('currentUserName') ||
     document.querySelector('.user-name');
   if (userNameEl && STATE.currentUser) {
     userNameEl.textContent = STATE.currentUser.nombre;
+    const roleEl = userNameEl.nextElementSibling;
+    if (roleEl) roleEl.textContent = role;
   }
 
-  // Mostrar/ocultar elementos según rol
-  const roleRestrictedElements = {
-    'usuarios': 'admin',
-    'logs': 'admin',
-    'reportes': 'admin'
+  // Define allowed views per role
+  const permissions = {
+    'admin': ['*'],
+    'administrador': ['*'],
+    'barista': ['dashboard', 'productos', 'alertas', 'manual'],
+    'almacenista': ['dashboard', 'productos', 'lotes', 'etiquetas', 'alertas', 'manual']
   };
 
-  Object.entries(roleRestrictedElements).forEach(([element, requiredRole]) => {
-    const el = document.querySelector(`[data-role="${element}"], .nav-item-${element}`);
-    if (el) {
-      el.style.display = role === requiredRole ? 'block' : 'none';
+  const allowed = permissions[normRole] || [];
+  const allNavLinks = document.querySelectorAll('.nav-link');
+
+  allNavLinks.forEach(link => {
+    const view = link.getAttribute('data-view');
+    const li = link.parentElement; // Assuming <li> wrapper if exists, or just hide link
+
+    if (allowed.includes('*') || allowed.includes(view)) {
+      link.style.display = 'flex';
+    } else {
+      link.style.display = 'none';
     }
   });
+
+  // Also hide specific section containers if currently on them?
+  // showView will handle redirect if trying to access restricted
+}
+
+/**
+ * Check if user can access view
+ */
+function canAccessView(viewName) {
+  const role = (STATE.currentRole || 'guest').toLowerCase();
+  const permissions = {
+    'admin': ['*'],
+    'administrador': ['*'],
+    'barista': ['dashboard', 'productos', 'alertas', 'manual', 'login'],
+    'almacenista': ['dashboard', 'productos', 'lotes', 'etiquetas', 'alertas', 'manual', 'login']
+  };
+
+  const allowed = permissions[role] || ['login'];
+
+  return allowed.includes('*') || allowed.includes(viewName);
 }
 
 // ======================== DASHBOARD ========================
@@ -2142,15 +2214,28 @@ async function downloadReporte(reporteId) {
  */
 async function loadSessionLogs() {
   try {
-    const result = await apiCall('/logs/sesiones');
+    const result = await apiCall('/logs');
 
     if (result.success) {
+      STATE.currentLogs = result.data; // Store for export
+      await populateLogUserFilter(result.data);
       renderSessionLogs(result.data);
     }
   } catch (error) {
     showToast('Error cargando logs', 'error');
   }
 }
+
+async function populateLogUserFilter(logs) {
+  const uniqueUsers = [...new Set(logs.map(l => JSON.stringify({ id: l.usuarioId, name: l.usuarioNombre })).filter(s => s !== '{}'))].map(JSON.parse);
+  const select = document.getElementById('filterLogUser');
+  if (!select) return;
+
+  // Keep first option
+  select.innerHTML = '<option value="all">Todos los usuarios</option>' +
+    uniqueUsers.map(u => `<option value="${u.id}">${u.name || 'Usuario ' + u.id}</option>`).join('');
+}
+
 
 /**
  * Renderizar log de sesiones
@@ -2168,19 +2253,87 @@ function renderSessionLogs(logs) {
 
   tbody.innerHTML = logs.map(log => `
     <tr>
-      <td>${log.usuario}</td>
+      <td><strong>${log.usuarioNombre || 'Sistema/Invitado'}</strong></td>
       <td>${log.email}</td>
       <td>${log.accion}</td>
       <td>${formatDateTime(log.fecha)}</td>
-      <td>${log.ip || '-'}</td>
-      <td>${log.navegador || '-'}</td>
+      <td>${formatIpLog(log.ip)}</td>
+      <td>${parseUserAgent(log.navegador)}</td>
       <td>
-        <span class="status-badge ${log.estado === 'success' ? 'status-exitoso' : 'status-fallido'}">
-          ${log.estado === 'success' ? '✓ Exitoso' : '✗ Fallido'}
+        <span class="status-badge ${log.estado === 'EXITO' || log.estado === 'success' ? 'status-activo' : 'status-inactivo'}">
+          ${log.estado === 'EXITO' || log.estado === 'success' ? 'EXITO' : 'FALLO'}
         </span>
       </td>
     </tr>
   `).join('');
+}
+
+function parseUserAgent(ua) {
+  if (!ua) return '-';
+  if (ua.includes('Edg/')) return 'Edge';
+  if (ua.includes('Chrome/') && !ua.includes('Edg/')) return 'Chrome';
+  if (ua.includes('Firefox/')) return 'Firefox';
+  if (ua.includes('Safari/') && !ua.includes('Chrome/')) return 'Safari';
+  if (ua.includes('OPR/') || ua.includes('Opera/')) return 'Opera';
+  if (ua.includes('Trident/')) return 'Internet Explorer';
+  return 'Navegador Desconocido'; // Fallback or return partial ua
+}
+
+function formatIpLog(ip) {
+  if (!ip) return '-';
+  if (ip === '::1' || ip === '127.0.0.1' || ip.includes('::ffff:127.0.0.1')) return 'Localhost';
+  return ip.replace('::ffff:', '');
+}
+
+
+// Filter and Export Logic for Logs
+async function filterLogs() {
+  const userId = document.getElementById('filterLogUser')?.value || 'all';
+  const date = document.getElementById('filterLogDate')?.value || '';
+
+  try {
+    let url = `/logs?userId=${userId}`;
+    if (date) url += `&date=${date}`;
+
+    const result = await apiCall(url);
+    if (result.success) {
+      renderSessionLogs(result.data);
+      STATE.currentLogs = result.data; // Cache for export
+    }
+  } catch (e) { console.error(e); }
+}
+
+function clearLogFilters() {
+  const u = document.getElementById('filterLogUser');
+  const d = document.getElementById('filterLogDate');
+  if (u) u.value = 'all';
+  if (d) d.value = '';
+  loadSessionLogs();
+}
+
+function exportLogsCSV() {
+  const data = STATE.currentLogs || [];
+  if (data.length === 0) {
+    showToast('No hay datos para exportar', 'warning');
+    return;
+  }
+
+  const headers = ['Usuario', 'Email', 'Accion', 'Fecha', 'IP', 'Navegador', 'Estado'];
+  const rows = data.map(l => {
+    return [
+      l.usuarioNombre || 'Desconocido',
+      l.email,
+      l.accion,
+      l.fecha,
+      l.ip,
+      l.navegador,
+      l.estado
+    ].map(f => `"${f || ''}"`).join(',');
+  });
+
+  const csvContent = headers.join(',') + '\n' + rows.join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  downloadBlob(blob, `logs_sesion_${new Date().toISOString().split('T')[0]}.csv`);
 }
 
 // ======================== MANUAL DE USUARIO ========================

@@ -552,6 +552,19 @@
                     <section id="logs" class="view" data-role="logs">
                         <div class="section-header">
                             <h1>Log de Sesiones</h1>
+                            <button onclick="exportLogsCSV()" class="btn btn-primary">
+                                <i class="fas fa-file-csv"></i> Exportar CSV
+                            </button>
+                        </div>
+
+                        <div class="filters-section">
+                            <select id="filterLogUser" class="filter-input" onchange="filterLogs()">
+                                <option value="all">Todos los usuarios</option>
+                            </select>
+                            <input type="date" id="filterLogDate" class="filter-input" onchange="filterLogs()">
+                            <button onclick="clearLogFilters()" class="btn btn-outline">
+                                <i class="fas fa-times"></i> Limpiar Filtros
+                            </button>
                         </div>
 
                         <!-- Tabla de Logs -->
