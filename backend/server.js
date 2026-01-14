@@ -220,22 +220,55 @@ app.post('/api/auth/logout', authMiddleware, async (req, res) => {
 });
 
 // ==================== 📊 LOTES ENDPOINTS ====================
+// ==================== 📊 LOTES ENDPOINTS ====================
 
 app.get('/api/lotes', authMiddleware, async (req, res) => {
   try {
     const pool = await poolPromise;
-    const result = await pool.request().query(`
+    
+    const { origen, estado, desde, hasta } = req.query;
+    
+    let query = `
       SELECT l.*, p.nombre as productoNombre, u.nombre as creadorNombre
       FROM Lotes l
       LEFT JOIN Productos p ON l.productoId = p.id
       LEFT JOIN Usuarios u ON l.creadoPor = u.id
-      ORDER BY l.creadoEn DESC
-    `);
+      WHERE 1=1
+    `;
+    
+    const params = pool.request();
+    
+    if (origen) {
+      query += ' AND l.origen LIKE @origen';
+      params.input('origen', sql.NVarChar, `%${origen}%`);
+    }
+    
+    if (estado) {
+      query += ' AND l.estado = @estado';
+      params.input('estado', sql.NVarChar, estado);
+    }
+    
+    // 📅 FILTRO DESDE (filterDesde)
+    if (desde) {
+      query += ' AND l.fechaTueste >= @desde';
+      params.input('desde', sql.Date, desde);
+    }
+    
+    // 📅 FILTRO HASTA (filterHasta)
+    if (hasta) {
+      query += ' AND l.fechaTueste <= @hasta';
+      params.input('hasta', sql.Date, hasta);
+    }
+    
+    // ✅ TU ORDEN ORIGINAL MANTENIDA
+    query += ' ORDER BY l.creadoEn DESC';
+    
+    const result = await params.query(query);
 
     res.json({
       success: true,
       message: 'Lotes obtenidos',
-      data: result.recordset, // recordset is the array of rows
+      data: result.recordset,
       total: result.recordset.length
     });
   } catch (error) {
@@ -302,9 +335,7 @@ app.put('/api/lotes/:id', authMiddleware, async (req, res) => {
                 estado=@estado, notas=@notas
             WHERE id = @id
         `);
-    // Note: For a real robust update, we'd dynamically build the SET clause or update all fields. 
-    // Simplified for brevity to match previous functionality expectation.
-
+    
     res.json({ success: true, message: 'Lote actualizado' });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error actualizando lote' });

@@ -2447,36 +2447,34 @@ function loadManualSection(sectionId) {
 }
 
 // ======================== FILTROS Y BÚSQUEDA ========================
-
 /**
- * Aplicar filtros a lotes
+ * Cargar lotes con filtros (AGREGAR/REEMPLAZAR)
  */
-function applyLotesFilter() {
-  STATE.filtrosLotes = {
-    origen: getInputValue('filterOrigen'),
-    estado: getInputValue('filterEstado'),
-    desde: getInputValue('filterDesde'),
-    hasta: getInputValue('filterHasta')
-  };
+async function loadLotes() {
+  try {
+    // 📊 Construir query params desde STATE.filtrosLotes
+    const params = new URLSearchParams({
+      ...(STATE.filtrosLotes.origen && { origen: STATE.filtrosLotes.origen }),
+      ...(STATE.filtrosLotes.estado && { estado: STATE.filtrosLotes.estado }),
+      ...(STATE.filtrosLotes.desde && { desde: STATE.filtrosLotes.desde }),
+      ...(STATE.filtrosLotes.hasta && { hasta: STATE.filtrosLotes.hasta })
+    });
 
-  STATE.currentPage = 1;
-  loadLotes();
-}
-
-/**
- * Limpiar filtros
- */
-function clearFilters() {
-  STATE.filtrosLotes = {};
-  STATE.filtrosProductos = {};
-  STATE.filtrosUsuarios = {};
-  STATE.currentPage = 1;
-
-  document.querySelectorAll('.filter-input').forEach(input => input.value = '');
-
-  if (STATE.currentView === 'lotes') loadLotes();
-  else if (STATE.currentView === 'productos') loadProductos();
-  else if (STATE.currentView === 'usuarios') loadUsuarios();
+    // 🔗 Llamada API con filtros
+    const result = await apiCall(`/lotes${params.toString() ? `?${params}` : ''}`);
+    
+    if (result.success) {
+      // 📋 Renderizar tu tabla
+      renderLotesTable(result.data);
+      
+      console.log('🔍 Lotes cargados:', result.data.length, 'Filtros:', params.toString());
+    } else {
+      showToast('Error en respuesta del servidor', 'error');
+    }
+  } catch (error) {
+    console.error('❌ Error loadLotes:', error);
+    showToast('Error cargando lotes', 'error');
+  }
 }
 
 // ======================== PAGINACIÓN ========================
