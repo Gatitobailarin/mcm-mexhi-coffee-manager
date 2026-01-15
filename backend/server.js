@@ -173,10 +173,13 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ success: false, message: 'Email o contraseña inválidos' });
     }
 
-    // Update last access
-    await pool.request()
-      .input('id', sql.Int, usuario.id)
-      .query('UPDATE Usuarios SET ultimoAcceso = GETDATE() WHERE id = @id');
+    try {
+      const updateResult = await pool.request()
+        .input('id', sql.Int, usuario.id)
+        .query('UPDATE Usuarios SET ultimoAcceso = GETDATE() WHERE id = @id');
+    } catch (errUpdate) {
+      console.error("❌ Error actualizando fecha acceso:", errUpdate);
+    }
 
     // SUCCESS LOG
     await logActivity(usuario.id, usuario.email, 'LOGIN EXITOSO', 'EXITO', req);
@@ -225,9 +228,9 @@ app.post('/api/auth/logout', authMiddleware, async (req, res) => {
 app.get('/api/lotes', authMiddleware, async (req, res) => {
   try {
     const pool = await poolPromise;
-    
+
     const { origen, estado, desde, hasta } = req.query;
-    
+
     let query = `
       SELECT l.*, p.nombre as productoNombre, u.nombre as creadorNombre
       FROM Lotes l
@@ -235,34 +238,34 @@ app.get('/api/lotes', authMiddleware, async (req, res) => {
       LEFT JOIN Usuarios u ON l.creadoPor = u.id
       WHERE 1=1
     `;
-    
+
     const params = pool.request();
-    
+
     if (origen) {
       query += ' AND l.origen LIKE @origen';
       params.input('origen', sql.NVarChar, `%${origen}%`);
     }
-    
+
     if (estado) {
       query += ' AND l.estado = @estado';
       params.input('estado', sql.NVarChar, estado);
     }
-    
+
     // 📅 FILTRO DESDE (filterDesde)
     if (desde) {
       query += ' AND l.fechaTueste >= @desde';
       params.input('desde', sql.Date, desde);
     }
-    
+
     // 📅 FILTRO HASTA (filterHasta)
     if (hasta) {
       query += ' AND l.fechaTueste <= @hasta';
       params.input('hasta', sql.Date, hasta);
     }
-    
+
     // ✅ TU ORDEN ORIGINAL MANTENIDA
     query += ' ORDER BY l.creadoEn DESC';
-    
+
     const result = await params.query(query);
 
     res.json({
@@ -335,7 +338,7 @@ app.put('/api/lotes/:id', authMiddleware, async (req, res) => {
                 estado=@estado, notas=@notas
             WHERE id = @id
         `);
-    
+
     res.json({ success: true, message: 'Lote actualizado' });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error actualizando lote' });
@@ -548,26 +551,144 @@ app.put('/api/alertas/:id', authMiddleware, async (req, res) => {
 // ==================== 👥 USUARIOS ENDPOINTS ====================
 
 app.get('/api/usuarios', authMiddleware, async (req, res) => {
-  if (req.user.rol !== 'Administrador' && req.user.rol !== 'admin') { // Check both for compatibility
+  if (req.user.rol !== 'Administrador' && req.user.rol !== 'admin') {
     return res.status(403).json({ success: false, message: 'No autorizado' });
   }
   try {
     const pool = await poolPromise;
     const result = await pool.request().query(`
-            SELECT u.id, u.nombre, u.email, u.estado, u.ultimoAcceso, r.nombre as rol 
+            SELECT u.id, u.nombre, u.email, u.estado, u.ultimoAcceso, r.nombre as rol, r.id as rolId
             FROM Usuarios u
             JOIN Roles r ON u.rolId = r.id
         `);
+
+    // DEBUG: Print first user to check columns
+    if (result.recordset.length > 0) {
+      console.log('🔍 GET /api/usuarios DEBUG:', result.recordset[0]);
+    }
+
     res.json({ success: true, data: result.recordset });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Error' });
   }
 });
 
+app.post('/api/usuarios', authMiddleware, async (req, res) => {
+  if (req.user.rol !== 'Administrador' && req.user.rol !== 'admin') {
+    return res.status(403).json({ success: false, message: 'No autorizado' });
+  }
+  try {
+    const { nombre, email, password, rol } = req.body;
+
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(password, salt);
+
+    // Get Rol ID (Assuming Roles table exists: 1=Admin, 2=Barista, 3=Almacenista)
+    // Dynamic lookup is better
+    const pool = await poolPromise;
+    const rolResult = await pool.request()
+      .input('rolName', sql.NVarChar, rol)
+      .query("SELECT id FROM Roles WHERE nombre = @rolName OR nombre = 'Administrador' AND @rolName = 'admin'");
+
+    let rolId = 2; // Default Barista
+    if (rolResult.recordset.length > 0) rolId = rolResult.recordset[0].id;
+    else if (rol === 'admin') rolId = 1;
+    else if (rol === 'almacenista') rolId = 3;
+
+    await pool.request()
+      .input('nombre', sql.NVarChar, nombre)
+      .input('email', sql.NVarChar, email)
+      .input('passwordHash', sql.NVarChar, passwordHash)
+      .input('rolId', sql.Int, rolId)
+      .query(`
+        INSERT INTO Usuarios (nombre, email, passwordHash, rolId, estado, creadoEn)
+        VALUES (@nombre, @email, @passwordHash, @rolId, 'Activo', GETDATE())
+      `);
+
+    res.status(201).json({ success: true, message: 'Usuario creado' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Error creando usuario' });
+  }
+});
+
+app.put('/api/usuarios/:id', authMiddleware, async (req, res) => {
+  if (req.user.rol !== 'Administrador' && req.user.rol !== 'admin') {
+    return res.status(403).json({ success: false, message: 'No autorizado' });
+  }
+  try {
+    const { nombre, email, password, rol, estado } = req.body;
+    const id = req.params.id;
+    const pool = await poolPromise;
+
+    let rolId = null;
+    if (rol) {
+      const rolResult = await pool.request()
+        .input('rolName', sql.NVarChar, rol)
+        .query("SELECT id FROM Roles WHERE nombre = @rolName OR (nombre = 'Administrador' AND @rolName = 'admin')");
+
+      if (rolResult.recordset.length > 0) {
+        rolId = rolResult.recordset[0].id;
+      } else {
+        if (rol === 'admin') rolId = 1;
+        else if (rol === 'barista') rolId = 2;
+        else if (rol === 'almacenista') rolId = 3;
+      }
+    }
+
+    let query = "UPDATE Usuarios SET nombre=@nombre, email=@email, estado=@estado";
+    const reqSql = pool.request()
+      .input('id', sql.Int, id)
+      .input('nombre', sql.NVarChar, nombre)
+      .input('email', sql.NVarChar, email)
+      .input('estado', sql.NVarChar, estado || 'Activo');
+
+    if (password) {
+      const salt = await bcrypt.genSalt(10);
+      const passwordHash = await bcrypt.hash(password, salt);
+      query += ", passwordHash=@passwordHash";
+      reqSql.input('passwordHash', sql.NVarChar, passwordHash);
+    }
+
+    if (rolId) {
+      query += ", rolId=@rolId";
+      reqSql.input('rolId', sql.Int, rolId);
+    }
+
+    query += " WHERE id=@id";
+    await reqSql.query(query);
+
+    res.json({ success: true, message: 'Usuario actualizado' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Error actualizando usuario' });
+  }
+});
+
+app.delete('/api/usuarios/:id', authMiddleware, async (req, res) => {
+  if (req.user.rol !== 'Administrador' && req.user.rol !== 'admin') {
+    return res.status(403).json({ success: false, message: 'No autorizado' });
+  }
+  try {
+    const pool = await poolPromise;
+    if (req.user.id == req.params.id) {
+      return res.status(400).json({ success: false, message: 'No puedes eliminar tu propio usuario' });
+    }
+
+    await pool.request()
+      .input('id', sql.Int, req.params.id)
+      .query("DELETE FROM Usuarios WHERE id = @id");
+
+    res.json({ success: true, message: 'Usuario eliminado' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Error eliminando usuario' });
+  }
+});
+
 // ==================== 📜 LOGS ENDPOINTS ====================
 
 app.get('/api/logs', authMiddleware, async (req, res) => {
-  // Only Admin should see logs
   if (req.user.rol !== 'Administrador' && req.user.rol !== 'admin') {
     return res.status(403).json({ success: false, message: 'No autorizado' });
   }

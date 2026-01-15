@@ -893,31 +893,34 @@ function loadUsuarios() {
           renderUsuariosTable(data.data);
           console.log('✅ Usuarios cargados');
         } else {
-          loadLocalUsuarios();
+          // loadLocalUsuarios();
+          showToast(data.message || 'Error cargando usuarios', 'error');
         }
       })
       .catch(err => {
         console.warn('Error obteniendo usuarios:', err);
-        loadLocalUsuarios();
+        // loadLocalUsuarios();
+        showToast('Error de red al cargar usuarios', 'error');
       });
 
   } catch (error) {
     console.error('❌ Error en loadUsuarios:', error);
+    // COMMENTED OUT FALLBACK TO AVOID MISLEADING DATA
+    // loadLocalUsuarios(); 
+    showToast('Error cargando usuarios desde el servidor', 'error');
   }
 }
 
+// Disable loadLocalUsuarios entirely to prevent confusion
 function loadLocalUsuarios() {
-  try {
-    if (typeof appData !== 'undefined' && appData.users) {
-      renderUsuariosTable(appData.users);
-    }
-  } catch (error) {
-    console.error('Error cargando usuarios locales:', error);
-  }
+  console.warn('Carga de usuarios locales deshabilitada para evitar datos falsos.');
 }
 
 function renderUsuariosTable(usuarios) {
   try {
+    // Save to STATE for lookup in Edit
+    STATE.usuarios = usuarios;
+
     if (!Array.isArray(usuarios)) return;
 
     const tableBody = document.querySelector('#usuariosTable tbody');
@@ -930,8 +933,19 @@ function renderUsuariosTable(usuarios) {
       row.innerHTML = `
         <td>${usuario.name || usuario.nombre || '-'}</td>
         <td>${usuario.email || '-'}</td>
-        <td>${usuario.role || usuario.rol || '-'}</td>
-        <td><span class="status">${usuario.status || usuario.estado || 'activo'}</span></td>
+        <td>${usuario.rol || '-'}</td>
+        <td><span class="status-badge ${getUsuarioStatusClass(usuario.estado)}">${usuario.status || usuario.estado || 'Activo'}</span></td>
+        <td>${usuario.ultimoAcceso ? formatDateTime(usuario.ultimoAcceso) : 'Nunca'}</td>
+        <td>
+            <div class="action-buttons">
+                <button class="btn-icon edit" onclick="editUsuario(${usuario.id})" title="Editar">
+                    <i class="fas fa-edit"></i>
+                </button>
+                <button class="btn-icon delete" onclick="deleteUsuario(${usuario.id})" title="Eliminar">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </td>
       `;
       tableBody.appendChild(row);
     });
@@ -939,6 +953,14 @@ function renderUsuariosTable(usuarios) {
   } catch (error) {
     console.error('Error renderizando usuarios:', error);
   }
+}
+
+function getUsuarioStatusClass(status) {
+  if (!status) return 'status-activo'; // default
+  const s = status.toLowerCase();
+  if (s === 'activo') return 'status-activo';
+  if (s === 'inactivo') return 'status-inactivo';
+  return '';
 }
 
 /**
@@ -1825,9 +1847,8 @@ function renderUsuariosTable() {
       <td><strong>${usuario.nombre}</strong></td>
       <td>${usuario.email}</td>
       <td><span class="role-badge role-${usuario.rol.toLowerCase()}">${usuario.rol}</span></td>
-      <td>${usuario.estado === 'activo' ? '✓ Activo' : '✗ Inactivo'}</td>
-      <td>${usuario.ultimoLogin ? formatDateTime(usuario.ultimoLogin) : 'Nunca'}</td>
-      <td>${formatDate(usuario.fechaCreacion)}</td>
+      <td>${usuario.estado === 'Activo' ? '✓ Activo' : '✗ Inactivo'}</td>
+      <td>${usuario.ultimoAcceso ? formatDateTime(usuario.ultimoAcceso) : 'Nunca'}</td>
       <td>
         <div class="action-buttons">
           <button class="btn-icon edit" onclick="editUsuario('${usuario.id}')" title="Editar">
@@ -2043,6 +2064,130 @@ async function deleteAlerta(alertaId) {
   } catch (error) {
     showToast('Error eliminando alerta', 'error');
   }
+}
+
+// ======================== GESTIÓN DE USUARIOS ========================
+
+/**
+ * Guardar Usuario (Nuevo o Editar)
+ */
+async function saveUsuario(e) {
+  e.preventDefault();
+
+  const nombre = getInputValue('nombreUsuario');
+  const email = getInputValue('emailUsuario');
+  const password = getInputValue('passwordUsuario');
+  const rol = getInputValue('rolUsuario');
+
+  if (!nombre || !email || !rol) {
+    showToast('Por favor completa los campos requeridos', 'warning');
+    return;
+  }
+
+  if (!STATE.editingUserId && !password) {
+    showToast('La contraseña es obligatoria para nuevos usuarios', 'warning');
+    return;
+  }
+
+  const payload = { nombre, email, password, rol, estado: getInputValue('estadoUsuario') };
+
+  try {
+    let result;
+    if (STATE.editingUserId) {
+      // UPDATE
+      result = await apiCall(`/usuarios/${STATE.editingUserId}`, 'PUT', payload);
+    } else {
+      // CREATE
+      result = await apiCall('/usuarios', 'POST', payload);
+    }
+
+    if (result.success) {
+      showToast(result.message, 'success');
+      closeUsuarioModal();
+      loadUsuarios(); 
+    } else {
+      showToast(result.message || 'Error guardando usuario', 'error');
+    }
+  } catch (error) {
+    console.error(error);
+    showToast('Error de conexión', 'error');
+  }
+}
+
+/**
+ * Abrir modal de nuevo usuario
+ */
+function openNewUsuarioModal() {
+  STATE.editingUserId = null;
+  document.getElementById('usuarioFormTitle').textContent = 'Nuevo Usuario';
+  document.getElementById('usuarioForm').reset();
+
+  // Reset Pass field
+  const passInput = document.getElementById('passwordUsuario');
+  if (passInput) {
+    passInput.required = true;
+    passInput.value = '';
+  }
+  const passGroup = document.getElementById('passwordUsuarioGroup');
+  if (passGroup) passGroup.style.display = 'block';
+
+  openModal('usuarioModal');
+}
+
+/**
+ * Editar Usuario
+ */
+function editUsuario(id) {
+  const user = STATE.usuarios ? STATE.usuarios.find(u => u.id == id) : null;
+  if (!user) {
+    console.error('Usuario no encontrado para edición:', id);
+    return;
+  }
+
+  STATE.editingUserId = id;
+  document.getElementById('usuarioFormTitle').textContent = 'Editar Usuario';
+
+  setInputValue('nombreUsuario', user.nombre);
+  setInputValue('emailUsuario', user.email);
+
+  const roleSelect = document.getElementById('rolUsuario');
+  if (roleSelect) {
+    const r = (user.rol || '').toLowerCase();
+    if (r === 'administrador') roleSelect.value = 'admin';
+    else roleSelect.value = r;
+  }
+
+  // Set Estado
+  setInputValue('estadoUsuario', user.estado || 'Activo');
+
+
+  const passInput = document.getElementById('passwordUsuario');
+  if (passInput) {
+    passInput.value = '';
+    passInput.required = false;
+    passInput.placeholder = '(Dejar en blanco para mantener actual)';
+  }
+
+  openModal('usuarioModal');
+}
+
+/**
+ * Eliminar Usuario
+ */
+function deleteUsuario(id) {
+  showConfirm('¿Estás seguro de eliminar este usuario?', async () => {
+    try {
+      const result = await apiCall(`/usuarios/${id}`, 'DELETE');
+      if (result.success) {
+        showToast('Usuario eliminado', 'success');
+        loadUsuarios();
+      } else {
+        showToast(result.message || 'Error eliminando', 'error');
+      }
+    } catch (e) {
+      showToast('Error de conexión', 'error');
+    }
+  });
 }
 
 // ======================== GENERACIÓN DE ETIQUETAS ========================
@@ -2462,11 +2607,11 @@ async function loadLotes() {
 
     // 🔗 Llamada API con filtros
     const result = await apiCall(`/lotes${params.toString() ? `?${params}` : ''}`);
-    
+
     if (result.success) {
       // 📋 Renderizar tu tabla
       renderLotesTable(result.data);
-      
+
       console.log('🔍 Lotes cargados:', result.data.length, 'Filtros:', params.toString());
     } else {
       showToast('Error en respuesta del servidor', 'error');
